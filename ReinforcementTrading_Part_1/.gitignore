@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+tensorboard_log/
+checkpoints/
+equity_curve.png
+test_evaluation_curve.png
+trade_history_output.csv
+model_eurusd_best.zip
