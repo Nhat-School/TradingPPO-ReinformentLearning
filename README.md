@@ -35,3 +35,7 @@ Dự án này yêu cầu **Python 3.9** (hoặc cao hơn nhưng dưới 3.14) đ
 *   **Để Test model đã có**: `python test_agent.py`
     *   Kết quả sẽ lưu lịch sử giao dịch vào `trade_history_output.csv` và ảnh đồ thị vào `test_evaluation_curve.png`.
 
+### Cách xem tensorboard:
+```bash
+tensorboard --logdir=ReinforcementTrading_Part_1/tensorboard_log
+```
