@@ -19,7 +19,7 @@ def run_one_episode(model, vec_env, deterministic=True):
         step_out = vec_env.step(action)
 
         if len(step_out) == 4:
-            obs, rewards, dones, infos = step_out
+            obs, rewards, dones, infos = step_out   
             done = bool(dones[0])
         else:
             obs, rewards, terminated, truncated, infos = step_out

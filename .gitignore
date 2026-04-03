@@ -1,3 +1,4 @@
 strategy.ipynb
 .DS_Store
 **/venv/
+*.pdf
