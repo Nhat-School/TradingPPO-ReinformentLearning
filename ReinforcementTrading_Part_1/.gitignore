@@ -1,10 +1,26 @@
+# Virtual Environments
 venv/
+env/
+.env
+
+# Python Caches
 __pycache__/
 *.pyc
+
+# OS generated files
 .DS_Store
+
+# Data and Logs
+data/
 tensorboard_log/
+logs/
+
+# Intermediate checkpoints and models
 checkpoints/
-equity_curve.png
-test_evaluation_curve.png
-trade_history_output.csv
+checkpoints_btc/
+best_model/
+model_btc_live.zip
 model_eurusd_best.zip
+
+# Temporary output files
+trade_history_output.csv

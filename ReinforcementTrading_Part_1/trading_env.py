@@ -58,8 +58,9 @@ class ForexTradingEnv(gym.Env):
         feature_std: np.ndarray | None = None,  # optional normalization (train-fitted)
         allow_flip: bool = False,               # if True, OPEN while in position flips (close+open). Default False.
         hold_reward_weight: float = 0.005,   # tuned below
-        open_penalty_pips: float = 0.5,      # NEW: penalty per open
-        time_penalty_pips: float = 0.02,     # NEW: cost per bar in a trade
+        open_penalty_pips: float = 0.5,      # penalty per open
+        time_penalty_pips: float = 0.02,     # cost per bar in a trade
+        downside_penalty_factor: float = 2.0,# multiplier for negative rewards (teaches risk aversion)
     ):
         super().__init__()
 
@@ -97,9 +98,9 @@ class ForexTradingEnv(gym.Env):
         self.reward_scale = float(reward_scale)
         self.unrealized_delta_weight = float(unrealized_delta_weight)
         self.hold_reward_weight = float(hold_reward_weight)
-        self.hold_reward_weight = float(hold_reward_weight)
         self.open_penalty_pips = float(open_penalty_pips)
         self.time_penalty_pips = float(time_penalty_pips)
+        self.downside_penalty_factor = float(downside_penalty_factor)
 
         # Episode handling
         self.random_start = bool(random_start)
@@ -397,7 +398,9 @@ class ForexTradingEnv(gym.Env):
                 slip_pips = self._sample_slippage_pips()
                 slip_price = slip_pips * self.pip_value
                 exit_price = close_price - slip_price if self.position == 1 else close_price + slip_price
-                reward_pips += self._close_position("MANUAL_CLOSE", exit_price)
+                net_pips = self._close_position("MANUAL_CLOSE", exit_price)
+                # Apply downside penalty for realized losses
+                reward_pips += net_pips * (self.downside_penalty_factor if net_pips < 0 else 1.0)
 
         elif act_type == "OPEN":
             if self.position == 0:
@@ -407,7 +410,8 @@ class ForexTradingEnv(gym.Env):
             else:
                 if self.allow_flip:
                     close_price = float(self.df.loc[self.current_step, "Close"])
-                    reward_pips += self._close_position("FLIP_CLOSE", close_price)
+                    net_pips = self._close_position("FLIP_CLOSE", close_price)
+                    reward_pips += net_pips * (self.downside_penalty_factor if net_pips < 0 else 1.0)
                     self._open_position(direction=direction, sl_pips=sl_pips, tp_pips=tp_pips)
                     reward_pips -= self.open_penalty_pips
 
@@ -415,7 +419,8 @@ class ForexTradingEnv(gym.Env):
         # 2) If position is open, check SL/TP on next bar intrabar
         realized_now = self._check_sl_tp_intrabar_and_maybe_close()
         if realized_now is not None:
-            reward_pips += realized_now
+            # Apply downside penalty if stopped out or closed at a loss
+            reward_pips += realized_now * (self.downside_penalty_factor if realized_now < 0 else 1.0)
 
         # 3) If still open, apply reward shaping based on delta-unrealized pips
         # 3) If still open, apply reward shaping
@@ -432,7 +437,8 @@ class ForexTradingEnv(gym.Env):
 
             # (b) optional shaping on change in unrealized (can keep small or zero)
             if self.unrealized_delta_weight != 0.0:
-                reward_pips += self.unrealized_delta_weight * delta_unreal
+                weighted_delta = delta_unreal * (self.downside_penalty_factor if delta_unreal < 0 else 1.0)
+                reward_pips += self.unrealized_delta_weight * weighted_delta
 
             # (c) small time cost per bar in a trade to avoid infinite holding
             reward_pips -= self.time_penalty_pips
