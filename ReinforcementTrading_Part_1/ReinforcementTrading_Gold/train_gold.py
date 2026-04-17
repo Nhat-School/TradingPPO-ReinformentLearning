@@ -144,7 +144,7 @@ def main():
 
     # 6. Train the Agent
     print("Starting Deep Training with 1D CNN Architecture (15m)...")
-    model.learn(total_timesteps=1000000, callback=eval_callback, tb_log_name="PPO_Gold_15m_CNN")
+    model.learn(total_timesteps=10000000, callback=eval_callback, tb_log_name="PPO_Gold_15m_CNN")
     
     # Save model directly to ensure it exists for short test runs
     model.save("model_gold_best")
