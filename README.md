@@ -65,9 +65,35 @@ A high-performance trading agent suite trained with **Proximal Policy Optimizati
 
 ## 🛠 Usage
 
+### Environment Setup
+
+It is recommended to use a **Python virtual environment** to keep dependencies isolated.
+
+**macOS / Linux**
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+**Windows (Command Prompt)**
+```bat
+python -m venv venv
+venv\Scripts\activate
+```
+
+**Windows (PowerShell)**
+```powershell
+python -m venv venv
+venv\Scripts\Activate.ps1
+```
+
+> After activation, your terminal prompt will be prefixed with `(venv)`. All subsequent commands (`python`, `pip`) will use the isolated environment.
+
+---
+
 ### Prerequisites
 
-Install all dependencies from the project root:
+With the virtual environment active, install all dependencies:
 ```bash
 pip install -r ReinforcementTrading_Part_1/Requirements.txt
 ```
@@ -126,8 +152,8 @@ python trade_btc_live.py
 
 What this does:
 1. Fetches the latest 120 days of BTC-USD 1h data via Yahoo Finance.
-2. Loads `model_eurusd_best.zip` (transfer-learned baseline) or your own `model_btc_best.zip`.
-3. Steps through the recent data and outputs the **recommended action for the next bar**.
+2. Loads `model_btc_best.zip` and steps through the recent data.
+3. Outputs the **recommended action for the next bar**.
 
 Example output:
 ```
@@ -138,8 +164,6 @@ Current Price: $96,400.00
 Action Recommended: OPEN LONG | SL: $500.0 | TP: $1000.0
 ==================================================
 ```
-
-> **Note**: Update the `PPO.load(...)` path in `trade_btc_live.py` to point to your freshly trained `model_btc_best` if you want to use your own model.
 
 ---
 
