@@ -1,73 +1,89 @@
 import os
+import sys
 import numpy as np
 import pandas as pd
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 
-from indicators import load_yfinance_data
+# Resolve paths relative to this script so it works from any working directory
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+os.chdir(SCRIPT_DIR)
+sys.path.insert(0, SCRIPT_DIR)
+
+from indicators import load_binance_data, preprocess_technical_indicators
 from trading_env import ForexTradingEnv
 
 def main():
-    print("Fetching live BTC-USD data...")
-    df, feature_cols = load_yfinance_data(symbol="BTC-USD", period="120d", interval="1h")
+    print("="*50)
+    print("BTC-USD LIVE PREDICTION - 10M STEPS MODEL")
+    print("="*50)
 
-    # Split data to Train and Test (last 20%)
-    split_idx = int(len(df) * 0.8)
-    train_df = df.iloc[:split_idx].copy()
-    test_df = df.iloc[split_idx:].copy()
+    # 1. Fetch latest data from Binance (last 10 days)
+    print("Fetching latest BTC-USD data from Binance...")
+    # Calculate timestamps for the last 10 days
+    now = pd.Timestamp.now(tz='UTC')
+    start_time = now - pd.Timedelta(days=10)
+    
+    start_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
+    end_str = now.strftime('%Y-%m-%d %H:%M:%S')
+    
+    # load_binance_data already calls preprocess_technical_indicators and returns (df, feature_cols)
+    df, feature_cols = load_binance_data(symbol="BTCUSDT", start_str=start_str, end_str=end_str)
+    
+    # Use the last 100 bars for the environment
+    test_df = df.tail(100).copy()
 
-    # Ensure Action Space Matches the EURUSD trained model exactly!
-    WIN = 30
-    SL_OPTS = [5, 10, 15, 25, 30, 60, 90, 120]
-    TP_OPTS = [5, 10, 15, 25, 30, 60, 90, 120]
+    # ---- Env settings (MUST MATCH train_btc_live.py) ----
+    SL_OPTS = [200, 500, 1000]
+    TP_OPTS = [200, 500, 1000]
+    WIN = 60
+    PIP_VALUE = 1.0
+    LOT_SIZE = 1.0
+    SPREAD_PIPS = 2.0
+
+    # Calculate normalization stats using this live chunk
+    # (In a production system, you'd use the train_mean/train_std saved during training)
+    stats_df = test_df[feature_cols]
+    val_mean = stats_df.mean().values
+    val_std = stats_df.std().values
+    val_mean = np.concatenate([val_mean, [0.0, 0.0, 0.0]])
+    val_std = np.concatenate([val_std, [1.0, 1.0, 1.0]])
 
     def make_live_env():
-        # Environment for predicting step-by-step
         return ForexTradingEnv(
-            df=test_df,
-            window_size=WIN,
-            sl_options=SL_OPTS,
-            tp_options=TP_OPTS,
-            pip_value=10.0,          # 1 pip = $10 move in BTC to reuse the [5..120] options
-            lot_size=0.1,            # Scales the USD value properly
-            spread_pips=1.5,         # 1.5 pips = $15 spread
-            commission_pips=0.0,
-            max_slippage_pips=0.5,   # Up to $5 slippage
-            random_start=False,
-            episode_max_steps=None,
-            feature_columns=feature_cols,
-            hold_reward_weight=0.0,
-            open_penalty_pips=0.0,
-            time_penalty_pips=0.0,
-            unrealized_delta_weight=0.0,
-            downside_penalty_factor=2.0
+            df=test_df, window_size=WIN, sl_options=SL_OPTS, tp_options=TP_OPTS,
+            pip_value=PIP_VALUE, lot_size=LOT_SIZE, spread_pips=SPREAD_PIPS,
+            commission_pips=0.0, max_slippage_pips=1.0, random_start=False,
+            episode_max_steps=None, feature_columns=feature_cols,
+            feature_mean=val_mean, feature_std=val_std, hold_reward_weight=0.0,
+            open_penalty_pips=0.0, time_penalty_pips=0.0, unrealized_delta_weight=0.0,
+            downside_penalty_factor=1.0
         )
 
     live_vec_env = DummyVecEnv([make_live_env])
 
-    print("Loading the best pre-trained EURUSD model to trade BTC...")
-    model = PPO.load("model_eurusd_best", env=live_vec_env)
+    print("Loading the best BTC model...")
+    model_path = os.path.join(SCRIPT_DIR, "model_btc_best")
+    if not os.path.exists(model_path + ".zip"):
+        print(f"Error: {model_path}.zip not found! Please run train_btc_live.py first.")
+        return
+        
+    model = PPO.load(model_path, env=live_vec_env)
 
-    # Run the live environment to the end
+    # Reset environment to get current observation
     obs = live_vec_env.reset()
-    last_action = None
     
-    while True:
+    # Predict ONLY the very last action
+    # We step through the last available bars to arrive at the current state
+    last_action = 0
+    for i in range(len(test_df) - WIN):
         action, _ = model.predict(obs, deterministic=True)
         last_action = action[0]
-        step_out = live_vec_env.step(action)
-        
-        if len(step_out) == 4:
-            obs, rewards, dones, infos = step_out
-            done = bool(dones[0])
-        else:
-            obs, rewards, terminated, truncated, infos = step_out
-            done = bool(terminated[0] or truncated[0])
-            
-        if done:
-            break
+        obs, rewards, dones, infos = live_vec_env.step(action)
+        if dones[0]: break
             
     # Remap the action to a human-readable format
+    # Index 0: HOLD, 1: CLOSE, then others...
     action_map = [("HOLD", None, None, None), ("CLOSE", None, None, None)]
     for direction in [0, 1]:  # 0=short, 1=long
         for sl in SL_OPTS:
@@ -80,16 +96,21 @@ def main():
     current_time = test_df.index[-1]
     
     print("\n" + "="*50)
-    print("LIVE TRADING BTC-USD PREDICTION (PPO RL AGENT)")
-    print(f"Time (latest available): {current_time}")
-    print(f"Current Price: ${current_price:.2f}")
+    print(f"LATEST DATA POINT: {current_time}")
+    print(f"CURRENT PRICE: ${current_price:,.2f}")
+    print("-" * 50)
+    
     if mapped_action[0] == "OPEN":
-        direction = "LONG" if mapped_action[1] == 1 else "SHORT"
-        sl_usd = mapped_action[2] * 10.0
-        tp_usd = mapped_action[3] * 10.0
-        print(f"Action Recommended: {mapped_action[0]} {direction} | SL: ${sl_usd:.1f} | TP: ${tp_usd:.1f}")
+        direction = "🟢 LONG" if mapped_action[1] == 1 else "🔴 SHORT"
+        sl_val = mapped_action[2]
+        tp_val = mapped_action[3]
+        print(f"MODEL RECOMMENDATION: {direction}")
+        print(f"Stop-Loss: ${current_price - sl_val if mapped_action[1]==1 else current_price + sl_val:,.2f} (-{sl_val} USD)")
+        print(f"Take-Profit: ${current_price + tp_val if mapped_action[1]==1 else current_price - tp_val:,.2f} (+{tp_val} USD)")
+    elif mapped_action[0] == "CLOSE":
+        print("MODEL RECOMMENDATION: ⚠️ CLOSE POSITION")
     else:
-        print(f"Action Recommended: {mapped_action[0]}")
+        print("MODEL RECOMMENDATION: ⏳ HOLD / WAIT")
     print("="*50)
 
 if __name__ == '__main__':

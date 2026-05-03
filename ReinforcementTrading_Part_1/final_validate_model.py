@@ -1,4 +1,5 @@
 import os
+import sys
 import requests
 import time
 import pandas as pd
@@ -7,6 +8,11 @@ import matplotlib.pyplot as plt
 import pandas_ta_classic as ta
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
+
+# Resolve paths relative to this script so it works from any working directory
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+os.chdir(SCRIPT_DIR)
+sys.path.insert(0, SCRIPT_DIR)
 
 from trading_env import ForexTradingEnv
 
@@ -158,12 +164,13 @@ def main():
     val_env = DummyVecEnv([make_val_env])
 
     # 5. Load the absolute best model
-    if not os.path.exists("model_btc_best.zip"):
+    model_file = os.path.join(SCRIPT_DIR, "model_btc_best.zip")
+    if not os.path.exists(model_file):
         print("ERROR: model_btc_best.zip not found! Run train_btc_live.py first.")
         return
         
     print("Loading 'model_btc_best.zip'...")
-    model = PPO.load("model_btc_best", env=val_env)
+    model = PPO.load(os.path.join(SCRIPT_DIR, "model_btc_best"), env=val_env)
 
     # 6. Run the simulation
     print("Running deterministic simulation over the unseen 2 years. Please wait...")
@@ -206,7 +213,7 @@ def main():
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.tight_layout()
-    plt.savefig("equity_curve_final.png", dpi=150)
+    plt.savefig(os.path.join(SCRIPT_DIR, "equity_curve_final.png"), dpi=150)
     print("Saved exact evaluation plot as 'equity_curve_final.png'")
     
 if __name__ == "__main__":

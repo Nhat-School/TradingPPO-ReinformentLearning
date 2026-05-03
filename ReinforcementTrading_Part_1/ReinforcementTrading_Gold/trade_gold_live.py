@@ -1,4 +1,5 @@
 import os
+import sys
 import numpy as np
 import pandas as pd
 import gymnasium as gym
@@ -7,6 +8,11 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 import torch
 import torch.nn as nn
+
+# Resolve paths relative to this script so it works from any working directory
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+os.chdir(SCRIPT_DIR)
+sys.path.insert(0, SCRIPT_DIR)
 
 from indicators_gold import load_binance_data
 from trading_env_gold import GoldScalpingEnv
@@ -78,7 +84,7 @@ def main():
     live_vec_env = DummyVecEnv([make_live_env])
 
     print("Loading the Oracle CNN model...")
-    model_path = "model_gold_best.zip"
+    model_path = os.path.join(SCRIPT_DIR, "model_gold_best.zip")
     if not os.path.exists(model_path):
         print(f"Error: {model_path} not found! Please run train_gold.py first.")
         return
@@ -88,7 +94,7 @@ def main():
         "features_extractor_kwargs": dict(features_dim=128, window_size=WINDOW, num_features=len(feature_cols))
     }
     
-    model = PPO.load("model_gold_best", env=live_vec_env, custom_objects=custom_objects)
+    model = PPO.load(os.path.join(SCRIPT_DIR, "model_gold_best"), env=live_vec_env, custom_objects=custom_objects)
 
     # Get the very latest observation
     obs = live_vec_env.reset()
