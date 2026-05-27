@@ -17,16 +17,30 @@ ReinforcementTrading_Part_1/
 │   ├── live.py                          # Latest signal từ model đã lưu
 │   └── ui/app.py                        # Dashboard Streamlit
 ├── artifacts/models/<SYMBOL>/<TF>/<RUN>/ # Model, metrics, chart theo từng tài sản
+├── artifacts/legacy_models/              # Model 10M cũ được giữ lại để backup
 ├── reports/TTCS_MOCK2_BoSung.docx       # DOCX bổ sung báo cáo
 ├── streamlit_app.py                     # Entry UI quen thuộc
 ├── training_runner.py                   # Wrapper tương thích cho code cũ
 ├── run_ui.sh                            # Chạy UI nhanh
-├── requirements.txt
-├── model_btc_best.zip                   # Model BTC 10M cũ vẫn giữ
-└── ReinforcementTrading_Gold/model_gold_best.zip
+└── requirements.txt
 ```
 
-Folder `ReinforcementTrading_Gold/` và các script cũ vẫn được giữ để không mất model 10M/reference cũ. Pipeline mới không cần tách BTC/Gold nữa: `BTCUSDT`, `PAXGUSDT`, `NEARUSDT`, `ETHUSDT`, `SOLUSDT`... đều chạy qua `trading_bot/`.
+Các script cũ BTC/Gold, CSV cũ, chart cũ và folder `training_runs/` đã được dọn để tránh nhầm lẫn. Hai model 10M cũ vẫn được giữ ở `artifacts/legacy_models/` để không mất công train trước đây. Pipeline mới không cần tách BTC/Gold nữa: `BTCUSDT`, `PAXGUSDT`, `NEARUSDT`, `ETHUSDT`, `SOLUSDT`... đều chạy qua `trading_bot/`.
+
+## Vai Trò Từng File Chính
+
+- `streamlit_app.py`: entrypoint UI, chỉ import dashboard trong `trading_bot/ui/app.py`.
+- `run_ui.sh`: chọn Python 3.9-3.12, tạo `.venv`, cài dependency, chạy Streamlit headless.
+- `requirements.txt`: dependency tối thiểu cho pipeline mới; không còn cần `pandas_ta_classic`.
+- `training_runner.py`: wrapper tương thích nếu code cũ import `run_training`; logic thật nằm trong `trading_bot/trainer.py`.
+- `trading_bot/data.py`: gọi Binance API `exchangeInfo` và `klines`.
+- `trading_bot/features.py`: tự tính RSI, ATR, MA, MACD, Bollinger width, StochRSI, MFI, volume/order-flow bằng pandas/numpy.
+- `trading_bot/env.py`: môi trường PPO chung, action `HOLD/CLOSE/OPEN`, SL/TP theo basis points, risk sizing theo equity.
+- `trading_bot/modeling.py`: tạo PPO `mlp`, `cnn1d`, hoặc `recurrent_lstm`.
+- `trading_bot/trainer.py`: fetch API, split train/validation/test, HPO Optuna, train PPO, chọn best validation checkpoint, evaluate OOS, lưu artifact.
+- `trading_bot/evaluation.py`: baseline, walk-forward report, stress test, chart equity/drawdown/baseline.
+- `trading_bot/live.py`: latest signal từ artifact đã lưu, dùng đúng scaler/config lúc train.
+- `trading_bot/ui/app.py`: dashboard, form train, tab latest signal, tab artifact.
 
 ## Cài Đặt
 
@@ -49,6 +63,7 @@ Cách nhanh:
 ```
 
 Script này sẽ dùng `venv/` nếu folder đó đã tồn tại và còn dùng được. Nếu `venv/` cũ thiếu Streamlit hoặc bị lỗi Torch, script sẽ tự tạo `.venv/` sạch rồi cài lại dependency.
+Nếu máy đang có một Streamlit khác chạy ở `8501`, Streamlit có thể tự mở port kế tiếp như `8502`; hãy nhìn dòng `Local URL` trong terminal.
 
 Nếu máy có nhiều Python, script sẽ tránh Python `3.14` vì nhiều thư viện ML chưa ổn định trên phiên bản này. Có thể ép Python cụ thể bằng:
 
@@ -75,7 +90,7 @@ Dashboard hỗ trợ:
 - Card watchlist: `BTCUSDT`, `ETHUSDT`, `NEARUSDT`, `SOLUSDT`, `BNBUSDT`, `XRPUSDT`, `ADAUSDT`, `DOGEUSDT`, `PAXGUSDT`.
 - Tài sản đã có model sẽ có viền sáng và hiện return/drawdown mới nhất.
 - Chọn symbol, timeframe, số timesteps, reward mode, policy type, Optuna trials rồi bấm `Run`.
-- Sau train sẽ hiện metrics và hình: equity curve, drawdown curve, baseline comparison, stress-test comparison.
+- Sau train sẽ hiện metrics, selected strategy, và hình: equity curve, drawdown curve, baseline comparison, stress-test comparison.
 
 Smoke test nên dùng:
 
@@ -100,6 +115,20 @@ Reward mode: pnl_drawdown
 Policy type: mlp
 ```
 
+Run kiểm tra cấu hình CNN/Optuna bạn yêu cầu. Đây cũng là cấu hình mặc định đang được đặt sẵn trên UI để bạn mở lên là thấy ngay:
+
+```text
+Symbol: BTCUSDT
+Timeframe: 4h
+Timesteps: 1,000,000
+Lookback days: 730
+Reward mode: pnl_drawdown
+Policy type: cnn1d
+Optuna trials: 1
+```
+
+Mình đã chạy kiểm thử rút gọn cùng cấu hình này với `100,000` timesteps để xác nhận pipeline không lỗi. Kết quả PPO OOS hiện tại là `0.00%` vì model chọn không vào lệnh; hệ thống vì vậy đánh dấu cảnh báo anti-overfit và chọn baseline RSI `+19.13%` trong `selected_strategy.json`. Muốn kiểm tra PPO lâu hơn, giữ nguyên UI và bấm `Run` với `1,000,000` timesteps.
+
 ## Train Từ CLI
 
 ```bash
@@ -120,6 +149,20 @@ python -m trading_bot.cli train \
   --reward-mode pnl_drawdown \
   --policy-type mlp \
   --run-name btc_2m_risk_normalized_20260527
+```
+
+Run BTC 4h CNN/Optuna:
+
+```bash
+python -m trading_bot.cli train \
+  --symbol BTCUSDT \
+  --timeframe 4h \
+  --timesteps 1000000 \
+  --lookback-days 730 \
+  --reward-mode pnl_drawdown \
+  --policy-type cnn1d \
+  --hpo-trials 1 \
+  --run-name btc_4h_1m_cnn1d_optuna1
 ```
 
 ## Latest Signal
@@ -147,6 +190,7 @@ artifacts/models/<SYMBOL>/<TIMEFRAME>/<RUN_ID>/
 ├── walk_forward_metrics.json
 ├── stress_test_metrics.json
 ├── overfit_report.json
+├── selected_strategy.json
 ├── equity_curve.png
 ├── drawdown_curve.png
 ├── baseline_comparison.png
@@ -165,6 +209,8 @@ Bản nâng cấp ghi lại:
 - PBO-style warning report dựa trên ranking OOS.
 - Train-only normalization trong `train_stats.npz`.
 - Risk-normalized sizing: SL/TP theo basis points, mỗi lệnh rủi ro tối đa `1%` equity, giới hạn notional và không cho equity âm.
+- `selected_strategy.json`: nếu PPO không thắng baseline OOS, hệ thống ghi cảnh báo và chọn candidate OOS tốt nhất để tránh overfit theo cảm tính.
+- UI dùng form submit để đảm bảo đổi timeframe/timesteps/policy/Optuna rồi bấm `Run` sẽ truyền đúng config vào trainer.
 
 ## Kết Quả BTC 2M Hiện Tại
 

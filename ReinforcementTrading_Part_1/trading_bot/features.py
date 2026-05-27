@@ -70,8 +70,8 @@ def add_features(raw_df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     df["atr_pct"] = (df["atr_14"] / df["Close"]) * 100.0
     df["ma_20"] = _sma(df["Close"], length=20)
     df["ma_50"] = _sma(df["Close"], length=50)
-    df["ma_20_slope_pct"] = df["ma_20"].pct_change() * 100.0
-    df["ma_50_slope_pct"] = df["ma_50"].pct_change() * 100.0
+    df["ma_20_slope_pct"] = df["ma_20"].pct_change(fill_method=None) * 100.0
+    df["ma_50_slope_pct"] = df["ma_50"].pct_change(fill_method=None) * 100.0
     df["close_ma20_diff_pct"] = ((df["Close"] - df["ma_20"]) / df["ma_20"]) * 100.0
     df["close_ma50_diff_pct"] = ((df["Close"] - df["ma_50"]) / df["ma_50"]) * 100.0
     df["ma_spread_pct"] = ((df["ma_20"] - df["ma_50"]) / df["ma_50"]) * 100.0

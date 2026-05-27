@@ -159,12 +159,14 @@ def run_training(config: TrainingConfig) -> dict[str, Any]:
 
     candidate_metrics = {"ppo": ppo_metrics}
     candidate_metrics.update({name: item["metrics"] for name, item in base.items()})
+    selected_strategy = select_strategy(candidate_metrics)
 
     write_json(run_dir / "metrics.json", ppo_metrics)
     write_json(run_dir / "baseline_metrics.json", {name: item["metrics"] for name, item in base.items()})
     write_json(run_dir / "walk_forward_metrics.json", walk_forward_report(ppo_curve, config.timeframe))
     write_json(run_dir / "stress_test_metrics.json", {"cost_x2": stress_metrics})
     write_json(run_dir / "overfit_report.json", pbo_report(candidate_metrics))
+    write_json(run_dir / "selected_strategy.json", selected_strategy)
 
     np.savez(run_dir / "train_stats.npz", feature_mean=feature_mean, feature_std=feature_std)
     full_config = asdict(config)
@@ -199,7 +201,34 @@ def run_training(config: TrainingConfig) -> dict[str, Any]:
         "metrics": ppo_metrics,
         "baseline_metrics": {name: item["metrics"] for name, item in base.items()},
         "stress_test_metrics": {"cost_x2": stress_metrics},
+        "selected_strategy": selected_strategy,
         "config": full_config,
+    }
+
+
+def select_strategy(candidate_metrics: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    ranked = sorted(
+        candidate_metrics.items(),
+        key=lambda item: (
+            float(item[1].get("return_pct", -1e9)),
+            float(item[1].get("sharpe_simple", -1e9)),
+            float(item[1].get("max_drawdown_pct", -1e9)),
+        ),
+        reverse=True,
+    )
+    best_name, best_metrics = ranked[0]
+    ppo_metrics = candidate_metrics.get("ppo", {})
+    return {
+        "selected": best_name,
+        "selected_return_pct": float(best_metrics.get("return_pct", 0.0)),
+        "ppo_return_pct": float(ppo_metrics.get("return_pct", 0.0)),
+        "ppo_is_selected": best_name == "ppo",
+        "positive_return_available": float(best_metrics.get("return_pct", 0.0)) > 0,
+        "note": (
+            "PPO selected by OOS return." if best_name == "ppo"
+            else "PPO did not beat the best OOS baseline; use this as an anti-overfit warning."
+        ),
+        "ranked_candidates": [name for name, _metrics in ranked],
     }
 
 

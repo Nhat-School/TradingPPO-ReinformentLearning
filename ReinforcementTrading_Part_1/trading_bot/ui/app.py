@@ -122,6 +122,7 @@ def show_artifact(run_dir: str | Path):
                 st.info(f"{filename} is not available for this run.")
 
     for label, filename in [
+        ("Selected strategy", "selected_strategy.json"),
         ("Baseline metrics", "baseline_metrics.json"),
         ("Walk-forward metrics", "walk_forward_metrics.json"),
         ("Stress-test metrics", "stress_test_metrics.json"),
@@ -152,21 +153,59 @@ with train_tab:
         st.success(f"Latest completed run: {st.session_state.last_run_symbol}")
         show_artifact(st.session_state.last_run_dir)
 
-    selected_symbol = st.selectbox("Symbol", symbols, index=symbols.index("BTCUSDT") if "BTCUSDT" in symbols else 0)
-    timeframe = st.selectbox("Timeframe", ["15m", "1h", "4h", "1d"], index=1)
-    col_a, col_b, col_c = st.columns(3)
-    with col_a:
-        timesteps = st.number_input("Timesteps", min_value=1_000, max_value=10_000_000, value=600_000, step=10_000)
-    with col_b:
-        lookback_days = st.number_input("API lookback days", min_value=30, max_value=3000, value=730, step=30)
-    with col_c:
-        seed = st.number_input("Seed", min_value=0, max_value=9999, value=42, step=1)
+    with st.form("training_form"):
+        selected_symbol = st.selectbox(
+            "Symbol",
+            symbols,
+            index=symbols.index("BTCUSDT") if "BTCUSDT" in symbols else 0,
+            key="train_symbol",
+        )
+        timeframe = st.selectbox("Timeframe", ["15m", "1h", "4h", "1d"], index=2, key="train_timeframe")
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            timesteps = st.number_input(
+                "Timesteps",
+                min_value=1_000,
+                max_value=10_000_000,
+                value=1_000_000,
+                step=10_000,
+                key="train_timesteps",
+            )
+        with col_b:
+            lookback_days = st.number_input(
+                "API lookback days",
+                min_value=30,
+                max_value=3000,
+                value=730,
+                step=30,
+                key="train_lookback_days",
+            )
+        with col_c:
+            seed = st.number_input("Seed", min_value=0, max_value=9999, value=42, step=1, key="train_seed")
 
-    reward_mode = st.selectbox("Reward mode", ["pnl_drawdown", "pnl", "sharpe_proxy"], index=0)
-    policy_type = st.selectbox("Policy type", ["mlp", "cnn1d", "recurrent_lstm"], index=0)
-    hpo_trials = st.number_input("Optuna trials", min_value=0, max_value=50, value=0, step=1)
+        reward_mode = st.selectbox(
+            "Reward mode",
+            ["pnl_drawdown", "pnl", "sharpe_proxy"],
+            index=0,
+            key="train_reward_mode",
+        )
+        policy_type = st.selectbox(
+            "Policy type",
+            ["mlp", "cnn1d", "recurrent_lstm"],
+            index=1,
+            key="train_policy_type",
+        )
+        hpo_trials = st.number_input(
+            "Optuna trials",
+            min_value=0,
+            max_value=50,
+            value=1,
+            step=1,
+            key="train_hpo_trials",
+        )
+        submitted = st.form_submit_button("Run", type="primary")
 
-    if st.button("Run", type="primary"):
+    if submitted:
         config = TrainingConfig(
             symbol=selected_symbol,
             timeframe=timeframe,
@@ -176,6 +215,11 @@ with train_tab:
             policy_type=policy_type,
             hpo_trials=int(hpo_trials),
             seed=int(seed),
+        )
+        st.info(
+            "Received config: "
+            f"{config.symbol} | {config.timeframe} | {config.total_timesteps:,} steps | "
+            f"{config.policy_type} | Optuna trials={config.hpo_trials}"
         )
         with st.spinner("Fetching Binance API data, training PPO, evaluating baselines, and saving charts..."):
             try:
