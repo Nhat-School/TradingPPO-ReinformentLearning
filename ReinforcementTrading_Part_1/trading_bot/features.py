@@ -2,7 +2,59 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pandas_ta_classic as ta
+
+
+def _sma(series: pd.Series, length: int) -> pd.Series:
+    return series.rolling(length, min_periods=length).mean()
+
+
+def _ema(series: pd.Series, span: int) -> pd.Series:
+    return series.ewm(span=span, adjust=False, min_periods=span).mean()
+
+
+def _rsi(close: pd.Series, length: int = 14) -> pd.Series:
+    delta = close.diff()
+    gain = delta.clip(lower=0.0)
+    loss = -delta.clip(upper=0.0)
+    avg_gain = gain.ewm(alpha=1 / length, adjust=False, min_periods=length).mean()
+    avg_loss = loss.ewm(alpha=1 / length, adjust=False, min_periods=length).mean()
+    rs = avg_gain / (avg_loss + 1e-10)
+    return 100.0 - (100.0 / (1.0 + rs))
+
+
+def _atr(high: pd.Series, low: pd.Series, close: pd.Series, length: int = 14) -> pd.Series:
+    prev_close = close.shift(1)
+    true_range = pd.concat(
+        [
+            high - low,
+            (high - prev_close).abs(),
+            (low - prev_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+    return true_range.ewm(alpha=1 / length, adjust=False, min_periods=length).mean()
+
+
+def _stochrsi(close: pd.Series, length: int = 14, k: int = 3, d: int = 3) -> tuple[pd.Series, pd.Series]:
+    rsi = _rsi(close, length)
+    lowest = rsi.rolling(length, min_periods=length).min()
+    highest = rsi.rolling(length, min_periods=length).max()
+    raw = ((rsi - lowest) / (highest - lowest + 1e-10)) * 100.0
+    stoch_k = raw.rolling(k, min_periods=k).mean()
+    stoch_d = stoch_k.rolling(d, min_periods=d).mean()
+    return stoch_k, stoch_d
+
+
+def _mfi(high: pd.Series, low: pd.Series, close: pd.Series, volume: pd.Series, length: int = 14) -> pd.Series:
+    typical = (high + low + close) / 3.0
+    money_flow = typical * volume
+    direction = typical.diff()
+    positive = money_flow.where(direction > 0, 0.0)
+    negative = money_flow.where(direction < 0, 0.0)
+    positive_sum = positive.rolling(length, min_periods=length).sum()
+    negative_sum = negative.rolling(length, min_periods=length).sum()
+    ratio = positive_sum / (negative_sum + 1e-10)
+    return 100.0 - (100.0 / (1.0 + ratio))
 
 
 def add_features(raw_df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
@@ -13,11 +65,11 @@ def add_features(raw_df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    df["rsi_14"] = ta.rsi(df["Close"], length=14)
-    df["atr_14"] = ta.atr(df["High"], df["Low"], df["Close"], length=14)
+    df["rsi_14"] = _rsi(df["Close"], length=14)
+    df["atr_14"] = _atr(df["High"], df["Low"], df["Close"], length=14)
     df["atr_pct"] = (df["atr_14"] / df["Close"]) * 100.0
-    df["ma_20"] = ta.sma(df["Close"], length=20)
-    df["ma_50"] = ta.sma(df["Close"], length=50)
+    df["ma_20"] = _sma(df["Close"], length=20)
+    df["ma_50"] = _sma(df["Close"], length=50)
     df["ma_20_slope_pct"] = df["ma_20"].pct_change() * 100.0
     df["ma_50_slope_pct"] = df["ma_50"].pct_change() * 100.0
     df["close_ma20_diff_pct"] = ((df["Close"] - df["ma_20"]) / df["ma_20"]) * 100.0
@@ -25,16 +77,16 @@ def add_features(raw_df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     df["ma_spread_pct"] = ((df["ma_20"] - df["ma_50"]) / df["ma_50"]) * 100.0
     df["ma_spread_slope_pct"] = df["ma_spread_pct"].diff()
 
-    macd = ta.macd(df["Close"])
-    df["macd_line"] = macd["MACD_12_26_9"]
-    df["macd_hist"] = macd["MACDh_12_26_9"]
-    bbands = ta.bbands(df["Close"], length=20)
-    df["bbands_width"] = (bbands["BBU_20_2.0"] - bbands["BBL_20_2.0"]) / df["Close"] * 100.0
-    stochrsi = ta.stochrsi(df["Close"])
-    df["stochrsi_k"] = stochrsi["STOCHRSIk_14_14_3_3"]
-    df["stochrsi_d"] = stochrsi["STOCHRSId_14_14_3_3"]
-    df["mfi_14"] = ta.mfi(df["High"], df["Low"], df["Close"], df["Volume"], length=14)
-    df["vol_sma_20"] = ta.sma(df["Volume"], length=20)
+    macd_line = _ema(df["Close"], 12) - _ema(df["Close"], 26)
+    macd_signal = _ema(macd_line, 9)
+    df["macd_line"] = macd_line
+    df["macd_hist"] = macd_line - macd_signal
+    bb_mid = _sma(df["Close"], length=20)
+    bb_std = df["Close"].rolling(20, min_periods=20).std()
+    df["bbands_width"] = ((bb_mid + 2.0 * bb_std) - (bb_mid - 2.0 * bb_std)) / df["Close"] * 100.0
+    df["stochrsi_k"], df["stochrsi_d"] = _stochrsi(df["Close"])
+    df["mfi_14"] = _mfi(df["High"], df["Low"], df["Close"], df["Volume"], length=14)
+    df["vol_sma_20"] = _sma(df["Volume"], length=20)
     df["vol_ratio"] = df["Volume"] / (df["vol_sma_20"] + 1e-10)
 
     feature_cols = [

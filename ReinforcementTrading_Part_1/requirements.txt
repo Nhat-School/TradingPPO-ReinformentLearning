@@ -1,6 +1,7 @@
 numpy
 pandas
 requests
+urllib3<2
 matplotlib
 gymnasium
 stable-baselines3

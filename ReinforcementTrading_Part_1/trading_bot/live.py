@@ -34,8 +34,9 @@ def latest_signal(symbol: str, timeframe: str | None = None) -> dict:
 
     raw = fetch_klines(symbol, timeframe, start="90 days ago UTC", end="now")
     df, live_features = add_features(raw)
-    if live_features != feature_cols:
-        raise ValueError("Live feature columns do not match the saved model artifact.")
+    missing_features = [col for col in feature_cols if col not in live_features]
+    if missing_features:
+        raise ValueError(f"Live feature columns are missing saved model features: {missing_features}")
 
     live_df = df.tail(max(settings.window_size + 120, settings.window_size + 5)).copy()
     env = MultiAssetTradingEnv(

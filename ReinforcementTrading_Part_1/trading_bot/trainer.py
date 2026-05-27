@@ -212,7 +212,18 @@ def list_artifacts(symbol: str | None = None, artifact_root: Path = ARTIFACT_ROO
         if not root.exists():
             continue
         runs.extend(path for path in root.glob("*/*") if (path / "model.zip").exists())
-    return sorted(runs, key=lambda p: p.stat().st_mtime, reverse=True)
+    return sorted(runs, key=_artifact_sort_key, reverse=True)
+
+
+def _artifact_sort_key(run_dir: Path) -> tuple[int, float]:
+    config_path = run_dir / "train_config.json"
+    timesteps = 0
+    if config_path.exists():
+        try:
+            timesteps = int(json.loads(config_path.read_text(encoding="utf-8")).get("total_timesteps", 0))
+        except Exception:
+            timesteps = 0
+    return timesteps, run_dir.stat().st_mtime
 
 
 def latest_artifact(symbol: str, timeframe: str | None = None) -> Path | None:
