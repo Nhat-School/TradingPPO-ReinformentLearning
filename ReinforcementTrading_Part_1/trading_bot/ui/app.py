@@ -62,6 +62,12 @@ st.markdown(
         color: #9ca3af;
         font-size: 0.82rem;
     }
+    div[data-testid="stMetric"] {
+        background: #111820;
+        border: 1px solid #26313c;
+        border-radius: 10px;
+        padding: 12px;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -284,14 +290,18 @@ def show_active_job(job: dict):
         st.caption("Artifact đang được ghi vào:")
         st.code(run_dir)
 
+    refresh_col, stop_col = st.columns([1, 5])
+    with refresh_col:
+        if st.button("Refresh progress", key="refresh_progress"):
+            st.rerun()
+
     if log_path.exists():
         tail = "\n".join(log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-30:])
-        with st.expander("Training log", expanded=True):
+        with st.expander("Training log", expanded=False):
             st.code(tail or "Log is being created...")
 
     if running:
-        st.caption("Đang train nền. Trang tự refresh mỗi 2 giây để cập nhật tiến trình.")
-        st.markdown("<meta http-equiv='refresh' content='2'>", unsafe_allow_html=True)
+        st.caption("Đang train nền. Bấm Refresh progress để cập nhật số bước mà không bị tự nhảy lên đầu trang.")
 
     if stage == "completed" and run_dir:
         st.session_state.last_run_dir = run_dir
@@ -305,11 +315,18 @@ def show_active_job(job: dict):
             st.error("Training process stopped before completion. Check the log above.")
 
 
+symbols = available_symbols()
+watchlist = [item for item in WATCHLIST if item in symbols]
+
 st.title("Trading Bot Trainer")
 st.caption("Chọn tài sản, timeframe, số bước train rồi bấm Run. Dữ liệu train lấy trực tiếp từ Binance API.")
 
-symbols = available_symbols()
-watchlist = [item for item in WATCHLIST if item in symbols]
+active_job = st.session_state.active_job or discover_latest_job()
+if active_job:
+    st.subheader("Training Progress")
+    show_active_job(active_job)
+    st.divider()
+
 st.subheader("Model Dashboard")
 cols = st.columns(3)
 for idx, symbol in enumerate(watchlist):
@@ -320,10 +337,6 @@ train_tab, signal_tab, artifacts_tab = st.tabs(["Train", "Latest Signal", "Artif
 
 with train_tab:
     st.subheader("Run Training")
-    active_job = st.session_state.active_job or discover_latest_job()
-    if active_job:
-        show_active_job(active_job)
-
     if st.session_state.last_run_dir:
         st.success(f"Latest completed run: {st.session_state.last_run_symbol}")
         show_artifact(st.session_state.last_run_dir)
