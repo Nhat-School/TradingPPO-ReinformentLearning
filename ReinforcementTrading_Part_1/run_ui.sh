@@ -22,5 +22,5 @@ then
   python -m pip install -r requirements.txt
 fi
 
-export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
-python -m streamlit run src/trading_bot/ui/app.py
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
+python -m streamlit run streamlit_app.py
