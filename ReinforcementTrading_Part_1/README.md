@@ -48,6 +48,14 @@ Cách nhanh:
 ./run_ui.sh
 ```
 
+Script này sẽ dùng `venv/` nếu folder đó đã tồn tại và còn dùng được. Nếu `venv/` cũ thiếu Streamlit hoặc bị lỗi Torch, script sẽ tự tạo `.venv/` sạch rồi cài lại dependency.
+
+Nếu máy có nhiều Python, script sẽ tránh Python `3.14` vì nhiều thư viện ML chưa ổn định trên phiên bản này. Có thể ép Python cụ thể bằng:
+
+```bash
+PYTHON_BIN=/usr/bin/python3 ./run_ui.sh
+```
+
 Cách thủ công:
 
 ```bash
