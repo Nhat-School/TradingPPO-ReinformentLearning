@@ -65,4 +65,8 @@ then
 fi
 
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
-python -m streamlit run streamlit_app.py --server.headless true
+
+# Avoid looking at a stale Streamlit process on port 8501 after code changes.
+pkill -f "streamlit.*streamlit_app.py" >/dev/null 2>&1 || true
+
+python -m streamlit run streamlit_app.py --server.headless true --server.address localhost --server.port 8501

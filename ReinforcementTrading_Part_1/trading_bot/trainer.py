@@ -56,7 +56,15 @@ def make_run_dir(config: TrainingConfig) -> Path:
     return run_dir
 
 
-def write_progress(path: str | Path | None, stage: str, progress: float, message: str, run_dir: Path | None = None):
+def write_progress(
+    path: str | Path | None,
+    stage: str,
+    progress: float,
+    message: str,
+    run_dir: Path | None = None,
+    current_steps: int | None = None,
+    total_steps: int | None = None,
+):
     if not path:
         return
     payload = {
@@ -67,6 +75,10 @@ def write_progress(path: str | Path | None, stage: str, progress: float, message
     }
     if run_dir is not None:
         payload["run_dir"] = str(run_dir)
+    if current_steps is not None:
+        payload["current_steps"] = int(current_steps)
+    if total_steps is not None:
+        payload["total_steps"] = int(total_steps)
     progress_path = Path(path)
     progress_path.parent.mkdir(parents=True, exist_ok=True)
     progress_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -89,6 +101,8 @@ class FileProgressCallback(BaseCallback):
                 0.20 + train_progress * 0.55,
                 f"Training PPO: {shown_steps:,}/{self.total_timesteps:,} timesteps",
                 self.run_dir,
+                current_steps=shown_steps,
+                total_steps=self.total_timesteps,
             )
         return True
 

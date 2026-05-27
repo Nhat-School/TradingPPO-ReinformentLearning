@@ -4,7 +4,6 @@ import json
 import os
 import subprocess
 import sys
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,12 +14,11 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from trading_bot.config import DEFAULT_TIMEFRAME, WATCHLIST, TrainingConfig
-from trading_bot.data import get_exchange_symbols
 from trading_bot.live import latest_signal
 from trading_bot.trainer import latest_artifact, load_run_summary
 
 
-st.set_page_config(page_title="Multi-Asset PPO Trading Bot", layout="wide")
+st.set_page_config(page_title="Trading Bot Trainer", layout="wide", initial_sidebar_state="collapsed")
 
 if "last_run_dir" not in st.session_state:
     st.session_state.last_run_dir = None
@@ -34,6 +32,12 @@ JOBS_ROOT = SRC_ROOT / "artifacts" / "jobs"
 st.markdown(
     """
     <style>
+    #MainMenu, header, footer, [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"], .stDeployButton {
+        display: none !important;
+    }
+    .block-container {
+        padding-top: 1.5rem;
+    }
     .asset-card {
         border: 1px solid #2b3138;
         border-radius: 8px;
@@ -64,12 +68,8 @@ st.markdown(
 )
 
 
-@st.cache_data(ttl=3600)
-def cached_symbols():
-    try:
-        return get_exchange_symbols("USDT")
-    except Exception:
-        return WATCHLIST
+def available_symbols():
+    return WATCHLIST
 
 
 def render_asset_card(symbol: str):
@@ -230,6 +230,13 @@ def show_active_job(job: dict):
 
     st.info(f"{job['symbol']} {job['timeframe']} | {stage}: {message}")
     st.progress(progress, text=f"{progress * 100:.1f}%")
+    current_steps = status.get("current_steps")
+    total_steps = status.get("total_steps")
+    if total_steps:
+        cols = st.columns(3)
+        cols[0].metric("Current step", f"{int(current_steps or 0):,}")
+        cols[1].metric("Target steps", f"{int(total_steps):,}")
+        cols[2].metric("Remaining", f"{max(int(total_steps) - int(current_steps or 0), 0):,}")
 
     run_dir = status.get("run_dir")
     if run_dir:
@@ -242,8 +249,8 @@ def show_active_job(job: dict):
             st.code(tail or "Log is being created...")
 
     if running:
-        time.sleep(2)
-        st.rerun()
+        st.caption("Đang train nền. Trang tự refresh mỗi 2 giây để cập nhật tiến trình.")
+        st.markdown("<meta http-equiv='refresh' content='2'>", unsafe_allow_html=True)
 
     if stage == "completed" and run_dir:
         st.session_state.last_run_dir = run_dir
@@ -257,10 +264,10 @@ def show_active_job(job: dict):
             st.error("Training process stopped before completion. Check the log above.")
 
 
-st.title("Multi-Asset PPO Trading Bot")
-st.caption("API-first Binance training, per-asset model artifacts, anti-overfit evaluation, and latest-signal preview.")
+st.title("Trading Bot Trainer")
+st.caption("Chọn tài sản, timeframe, số bước train rồi bấm Run. Dữ liệu train lấy trực tiếp từ Binance API.")
 
-symbols = cached_symbols()
+symbols = available_symbols()
 watchlist = [item for item in WATCHLIST if item in symbols]
 st.subheader("Model Dashboard")
 cols = st.columns(3)
@@ -298,25 +305,10 @@ with train_tab:
                 key="train_timesteps",
             )
         with col_b:
-            policy_type = st.selectbox("Model type", ["cnn1d", "mlp"], index=0, key="train_policy_type")
-
-        with st.expander("Advanced options"):
-            lookback_days = st.number_input(
-                "API lookback days",
-                min_value=90,
-                max_value=3000,
-                value=730,
-                step=30,
-                key="train_lookback_days",
-            )
-            hpo_trials = st.number_input(
-                "Optuna trials",
-                min_value=0,
-                max_value=10,
-                value=1,
-                step=1,
-                key="train_hpo_trials",
-            )
+            policy_type = st.selectbox("Model", ["cnn1d", "mlp"], index=0, key="train_policy_type")
+        lookback_days = 730
+        hpo_trials = 1
+        st.caption("Mặc định: Binance lookback 730 ngày, reward chống overfit pnl_drawdown, seed 42, Optuna trial 1.")
         submitted = st.form_submit_button("Run", type="primary")
 
     if submitted:
@@ -336,7 +328,6 @@ with train_tab:
             f"{config.policy_type} | Optuna trials={config.hpo_trials}"
         )
         st.session_state.active_job = start_training_job(config)
-        st.cache_data.clear()
         st.rerun()
 
 with signal_tab:
