@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import streamlit as st
@@ -13,7 +17,7 @@ if str(SRC_ROOT) not in sys.path:
 from trading_bot.config import DEFAULT_TIMEFRAME, WATCHLIST, TrainingConfig
 from trading_bot.data import get_exchange_symbols
 from trading_bot.live import latest_signal
-from trading_bot.trainer import latest_artifact, load_run_summary, run_training
+from trading_bot.trainer import latest_artifact, load_run_summary
 
 
 st.set_page_config(page_title="Multi-Asset PPO Trading Bot", layout="wide")
@@ -22,6 +26,10 @@ if "last_run_dir" not in st.session_state:
     st.session_state.last_run_dir = None
 if "last_run_symbol" not in st.session_state:
     st.session_state.last_run_symbol = None
+if "active_job" not in st.session_state:
+    st.session_state.active_job = None
+
+JOBS_ROOT = SRC_ROOT / "artifacts" / "jobs"
 
 st.markdown(
     """
@@ -134,6 +142,121 @@ def show_artifact(run_dir: str | Path):
                 st.json(json.loads(path.read_text(encoding="utf-8")))
 
 
+def _is_process_running(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _read_json(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+
+
+def start_training_job(config: TrainingConfig) -> dict:
+    JOBS_ROOT.mkdir(parents=True, exist_ok=True)
+    job_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    job_dir = JOBS_ROOT / f"{config.symbol}_{config.timeframe}_{job_id}"
+    job_dir.mkdir(parents=True, exist_ok=False)
+    progress_file = job_dir / "status.json"
+    log_file = job_dir / "train.log"
+    run_name = config.run_name or f"{config.symbol.lower()}_{config.timeframe}_{job_id}"
+    cmd = [
+        sys.executable,
+        "-m",
+        "trading_bot.cli",
+        "train",
+        "--symbol",
+        config.symbol,
+        "--timeframe",
+        config.timeframe,
+        "--timesteps",
+        str(config.total_timesteps),
+        "--lookback-days",
+        str(config.lookback_days),
+        "--reward-mode",
+        config.reward_mode,
+        "--policy-type",
+        config.policy_type,
+        "--hpo-trials",
+        str(config.hpo_trials),
+        "--seed",
+        str(config.seed),
+        "--run-name",
+        run_name,
+        "--progress-file",
+        str(progress_file),
+    ]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(SRC_ROOT)
+    with log_file.open("w", encoding="utf-8") as log:
+        process = subprocess.Popen(cmd, cwd=str(SRC_ROOT), env=env, stdout=log, stderr=subprocess.STDOUT)
+    progress_file.write_text(
+        json.dumps(
+            {
+                "stage": "queued",
+                "progress": 0.0,
+                "message": "Training job started in background",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return {
+        "pid": process.pid,
+        "job_dir": str(job_dir),
+        "progress_file": str(progress_file),
+        "log_file": str(log_file),
+        "symbol": config.symbol,
+        "timeframe": config.timeframe,
+    }
+
+
+def show_active_job(job: dict):
+    progress_path = Path(job["progress_file"])
+    log_path = Path(job["log_file"])
+    status = _read_json(progress_path)
+    running = _is_process_running(int(job["pid"]))
+    stage = status.get("stage", "starting")
+    progress = float(status.get("progress", 0.0))
+    message = status.get("message", "Waiting for trainer output...")
+
+    st.info(f"{job['symbol']} {job['timeframe']} | {stage}: {message}")
+    st.progress(progress, text=f"{progress * 100:.1f}%")
+
+    run_dir = status.get("run_dir")
+    if run_dir:
+        st.caption("Artifact đang được ghi vào:")
+        st.code(run_dir)
+
+    if log_path.exists():
+        tail = "\n".join(log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-30:])
+        with st.expander("Training log", expanded=True):
+            st.code(tail or "Log is being created...")
+
+    if running:
+        time.sleep(2)
+        st.rerun()
+
+    if stage == "completed" and run_dir:
+        st.session_state.last_run_dir = run_dir
+        st.session_state.last_run_symbol = job["symbol"]
+        st.session_state.active_job = None
+        st.success("Training completed.")
+        show_artifact(run_dir)
+    elif not running:
+        st.session_state.active_job = None
+        if stage != "completed":
+            st.error("Training process stopped before completion. Check the log above.")
+
+
 st.title("Multi-Asset PPO Trading Bot")
 st.caption("API-first Binance training, per-asset model artifacts, anti-overfit evaluation, and latest-signal preview.")
 
@@ -149,6 +272,9 @@ train_tab, signal_tab, artifacts_tab = st.tabs(["Train", "Latest Signal", "Artif
 
 with train_tab:
     st.subheader("Run Training")
+    if st.session_state.active_job:
+        show_active_job(st.session_state.active_job)
+
     if st.session_state.last_run_dir:
         st.success(f"Latest completed run: {st.session_state.last_run_symbol}")
         show_artifact(st.session_state.last_run_dir)
@@ -161,7 +287,7 @@ with train_tab:
             key="train_symbol",
         )
         timeframe = st.selectbox("Timeframe", ["15m", "1h", "4h", "1d"], index=2, key="train_timeframe")
-        col_a, col_b, col_c = st.columns(3)
+        col_a, col_b = st.columns(2)
         with col_a:
             timesteps = st.number_input(
                 "Timesteps",
@@ -172,37 +298,25 @@ with train_tab:
                 key="train_timesteps",
             )
         with col_b:
+            policy_type = st.selectbox("Model type", ["cnn1d", "mlp"], index=0, key="train_policy_type")
+
+        with st.expander("Advanced options"):
             lookback_days = st.number_input(
                 "API lookback days",
-                min_value=30,
+                min_value=90,
                 max_value=3000,
                 value=730,
                 step=30,
                 key="train_lookback_days",
             )
-        with col_c:
-            seed = st.number_input("Seed", min_value=0, max_value=9999, value=42, step=1, key="train_seed")
-
-        reward_mode = st.selectbox(
-            "Reward mode",
-            ["pnl_drawdown", "pnl", "sharpe_proxy"],
-            index=0,
-            key="train_reward_mode",
-        )
-        policy_type = st.selectbox(
-            "Policy type",
-            ["mlp", "cnn1d", "recurrent_lstm"],
-            index=1,
-            key="train_policy_type",
-        )
-        hpo_trials = st.number_input(
-            "Optuna trials",
-            min_value=0,
-            max_value=50,
-            value=1,
-            step=1,
-            key="train_hpo_trials",
-        )
+            hpo_trials = st.number_input(
+                "Optuna trials",
+                min_value=0,
+                max_value=10,
+                value=1,
+                step=1,
+                key="train_hpo_trials",
+            )
         submitted = st.form_submit_button("Run", type="primary")
 
     if submitted:
@@ -211,24 +325,17 @@ with train_tab:
             timeframe=timeframe,
             total_timesteps=int(timesteps),
             lookback_days=int(lookback_days),
-            reward_mode=reward_mode,
+            reward_mode="pnl_drawdown",
             policy_type=policy_type,
             hpo_trials=int(hpo_trials),
-            seed=int(seed),
+            seed=42,
         )
         st.info(
             "Received config: "
             f"{config.symbol} | {config.timeframe} | {config.total_timesteps:,} steps | "
             f"{config.policy_type} | Optuna trials={config.hpo_trials}"
         )
-        with st.spinner("Fetching Binance API data, training PPO, evaluating baselines, and saving charts..."):
-            try:
-                result = run_training(config)
-            except Exception as exc:
-                st.error(f"Training failed: {exc}")
-                st.stop()
-        st.session_state.last_run_dir = result["run_dir"]
-        st.session_state.last_run_symbol = selected_symbol
+        st.session_state.active_job = start_training_job(config)
         st.cache_data.clear()
         st.rerun()
 

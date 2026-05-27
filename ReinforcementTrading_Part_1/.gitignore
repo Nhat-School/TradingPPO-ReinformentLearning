@@ -7,6 +7,7 @@ env/
 # Python Caches
 __pycache__/
 *.pyc
+~$*.docx
 
 # OS generated files
 .DS_Store
@@ -14,6 +15,7 @@ __pycache__/
 # Data and Logs
 data/
 tensorboard_log/
+artifacts/jobs/
 
 # Intermediate checkpoints and models
 checkpoints/

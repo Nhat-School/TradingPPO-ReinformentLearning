@@ -89,7 +89,9 @@ Dashboard hỗ trợ:
 - Fetch danh sách cặp `USDT` đang trading từ Binance `exchangeInfo`.
 - Card watchlist: `BTCUSDT`, `ETHUSDT`, `NEARUSDT`, `SOLUSDT`, `BNBUSDT`, `XRPUSDT`, `ADAUSDT`, `DOGEUSDT`, `PAXGUSDT`.
 - Tài sản đã có model sẽ có viền sáng và hiện return/drawdown mới nhất.
-- Chọn symbol, timeframe, số timesteps, reward mode, policy type, Optuna trials rồi bấm `Run`.
+- Chọn symbol, timeframe, số timesteps, model type rồi bấm `Run`.
+- Các setting ít dùng được gom vào `Advanced options`: API lookback days và Optuna trials.
+- Khi bấm `Run`, UI khởi động training dưới dạng background job, hiện stage, progress bar, artifact folder và tail log. Vì vậy trình duyệt không còn bị màn hình đen/kẹt khi train lâu.
 - Sau train sẽ hiện metrics, selected strategy, và hình: equity curve, drawdown curve, baseline comparison, stress-test comparison.
 
 Smoke test nên dùng:
@@ -128,6 +130,8 @@ Optuna trials: 1
 ```
 
 Mình đã chạy kiểm thử rút gọn cùng cấu hình này với `100,000` timesteps để xác nhận pipeline không lỗi. Kết quả PPO OOS hiện tại là `0.00%` vì model chọn không vào lệnh; hệ thống vì vậy đánh dấu cảnh báo anti-overfit và chọn baseline RSI `+19.13%` trong `selected_strategy.json`. Muốn kiểm tra PPO lâu hơn, giữ nguyên UI và bấm `Run` với `1,000,000` timesteps.
+
+Progress job tạm thời được ghi vào `artifacts/jobs/` và đã được ignore khỏi Git. Model/metrics/chart thật vẫn nằm trong `artifacts/models/`.
 
 ## Train Từ CLI
 

@@ -23,6 +23,7 @@ def main():
     train.add_argument("--hpo-trials", type=int, default=0)
     train.add_argument("--seed", type=int, default=42)
     train.add_argument("--run-name", default=None)
+    train.add_argument("--progress-file", default=None)
 
     signal = sub.add_parser("signal")
     signal.add_argument("--symbol", default="BTCUSDT")
@@ -41,7 +42,8 @@ def main():
                 hpo_trials=args.hpo_trials,
                 seed=args.seed,
                 run_name=args.run_name,
-            )
+            ),
+            progress_path=args.progress_file,
         )
     else:
         result = latest_signal(args.symbol, args.timeframe)

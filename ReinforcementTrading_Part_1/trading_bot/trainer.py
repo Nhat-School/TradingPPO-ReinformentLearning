@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 from stable_baselines3.common.callbacks import EvalCallback
+from stable_baselines3.common.callbacks import BaseCallback, CallbackList
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
 
@@ -55,6 +56,43 @@ def make_run_dir(config: TrainingConfig) -> Path:
     return run_dir
 
 
+def write_progress(path: str | Path | None, stage: str, progress: float, message: str, run_dir: Path | None = None):
+    if not path:
+        return
+    payload = {
+        "stage": stage,
+        "progress": max(0.0, min(1.0, float(progress))),
+        "message": message,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if run_dir is not None:
+        payload["run_dir"] = str(run_dir)
+    progress_path = Path(path)
+    progress_path.parent.mkdir(parents=True, exist_ok=True)
+    progress_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+class FileProgressCallback(BaseCallback):
+    def __init__(self, progress_path: str | Path | None, total_timesteps: int, run_dir: Path):
+        super().__init__()
+        self.progress_path = progress_path
+        self.total_timesteps = max(1, int(total_timesteps))
+        self.run_dir = run_dir
+
+    def _on_step(self) -> bool:
+        if self.n_calls == 1 or self.num_timesteps % 10_000 == 0 or self.num_timesteps >= self.total_timesteps:
+            train_progress = min(self.num_timesteps / self.total_timesteps, 1.0)
+            shown_steps = min(self.num_timesteps, self.total_timesteps)
+            write_progress(
+                self.progress_path,
+                "training",
+                0.20 + train_progress * 0.55,
+                f"Training PPO: {shown_steps:,}/{self.total_timesteps:,} timesteps",
+                self.run_dir,
+            )
+        return True
+
+
 def env_kwargs(settings: EnvSettings, feature_cols, feature_mean, feature_std, reward_mode: str):
     payload = asdict(settings)
     payload.update(
@@ -83,7 +121,7 @@ def _eval_freq(total_timesteps: int) -> int:
     return max(1_000, min(50_000, max(total_timesteps // 10, 1_000)))
 
 
-def run_hpo(config: TrainingConfig, train_df, val_df, env_params, run_dir: Path):
+def run_hpo(config: TrainingConfig, train_df, val_df, env_params, run_dir: Path, progress_path: str | Path | None = None):
     if config.hpo_trials <= 0:
         return {}
     try:
@@ -94,6 +132,13 @@ def run_hpo(config: TrainingConfig, train_df, val_df, env_params, run_dir: Path)
     trial_steps = max(2_000, min(50_000, config.total_timesteps // 5))
 
     def objective(trial):
+        write_progress(
+            progress_path,
+            "hpo",
+            0.12,
+            f"Optuna trial {trial.number + 1}/{config.hpo_trials}: searching PPO hyperparameters",
+            run_dir,
+        )
         params = {
             "learning_rate": trial.suggest_float("learning_rate", 1e-5, 8e-4, log=True),
             "ent_coef": trial.suggest_float("ent_coef", 0.001, 0.08, log=True),
@@ -114,18 +159,21 @@ def run_hpo(config: TrainingConfig, train_df, val_df, env_params, run_dir: Path)
     return report
 
 
-def run_training(config: TrainingConfig) -> dict[str, Any]:
+def run_training(config: TrainingConfig, progress_path: str | Path | None = None) -> dict[str, Any]:
     symbol = config.symbol.upper()
     run_dir = make_run_dir(config)
+    write_progress(progress_path, "fetching", 0.03, f"Fetching {symbol} {config.timeframe} candles from Binance API", run_dir)
 
     raw = fetch_klines(symbol, config.timeframe, start=f"{config.lookback_days} days ago UTC", end="now")
+    write_progress(progress_path, "features", 0.08, "Building technical, volume and order-flow features", run_dir)
     df, feature_cols = add_features(raw)
+    write_progress(progress_path, "split", 0.10, "Splitting train/validation/test by time order", run_dir)
     train_df, val_df, test_df = split_train_val_test(df)
     feature_mean, feature_std = fit_stats(train_df, feature_cols)
     settings = default_env_settings(symbol, config.timeframe)
     params = env_kwargs(settings, feature_cols, feature_mean, feature_std, config.reward_mode)
 
-    hpo_report = run_hpo(config, train_df, val_df, params, run_dir)
+    hpo_report = run_hpo(config, train_df, val_df, params, run_dir, progress_path)
     model_params = hpo_report.get("best_params", {}) if isinstance(hpo_report, dict) else {}
 
     train_env = DummyVecEnv([lambda: make_env(train_df, params, True, 2000)])
@@ -141,16 +189,20 @@ def run_training(config: TrainingConfig) -> dict[str, Any]:
         deterministic=True,
         render=False,
     )
-    model.learn(total_timesteps=config.total_timesteps, callback=callback)
+    progress_callback = FileProgressCallback(progress_path, config.total_timesteps, run_dir)
+    model.learn(total_timesteps=config.total_timesteps, callback=CallbackList([callback, progress_callback]))
 
+    write_progress(progress_path, "evaluating", 0.78, "Loading best validation checkpoint and evaluating OOS test set", run_dir)
     best_path = run_dir / "best_model" / "best_model.zip"
     model_cls = type(model)
     best_model = model_cls.load(str(best_path), env=test_env) if best_path.exists() else model
     best_model.save(str(run_dir / "model"))
 
     ppo_curve, ppo_metrics = evaluate_model(best_model, test_env, config.timeframe)
+    write_progress(progress_path, "baselines", 0.84, "Running Buy & Hold, MA, RSI and random baselines", run_dir)
     base = baseline_curves(test_df, config.timeframe, seed=config.seed)
 
+    write_progress(progress_path, "stress", 0.89, "Running transaction-cost stress test", run_dir)
     stress_params = dict(params)
     stress_params["spread_pips"] = float(stress_params["spread_pips"]) * 2.0
     stress_params["max_slippage_pips"] = float(stress_params["max_slippage_pips"]) * 2.0
@@ -161,6 +213,7 @@ def run_training(config: TrainingConfig) -> dict[str, Any]:
     candidate_metrics.update({name: item["metrics"] for name, item in base.items()})
     selected_strategy = select_strategy(candidate_metrics)
 
+    write_progress(progress_path, "saving", 0.94, "Saving model, metrics, charts and overfit report", run_dir)
     write_json(run_dir / "metrics.json", ppo_metrics)
     write_json(run_dir / "baseline_metrics.json", {name: item["metrics"] for name, item in base.items()})
     write_json(run_dir / "walk_forward_metrics.json", walk_forward_report(ppo_curve, config.timeframe))
@@ -195,6 +248,7 @@ def run_training(config: TrainingConfig) -> dict[str, Any]:
         f"{symbol} Stress Test",
         {"normal_cost": ppo_curve, "cost_x2": stress_curve},
     )
+    write_progress(progress_path, "completed", 1.0, "Training completed. Artifact is ready.", run_dir)
 
     return {
         "run_dir": str(run_dir),
