@@ -168,8 +168,10 @@ def load_binance_data(symbol="PAXGUSDT", interval="15m", start_str="1700 days ag
                     'Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume',
                     'Close_time', 'Quote_vol', 'Trades', 'Taker_base', 'Taker_quote', 'Ignore'
                 ])
-                # Keep only what we need and use float32
-                df_chunk = df_chunk[['Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume', 'Taker_base']].astype('float32')
+                # Keep timestamp precision intact; compress only numeric market fields.
+                df_chunk = df_chunk[['Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume', 'Taker_base']]
+                for col in ['Open', 'High', 'Low', 'Close', 'Volume', 'Taker_base']:
+                    df_chunk[col] = pd.to_numeric(df_chunk[col], errors='coerce').astype('float32')
                 df_chunk.to_csv(temp_file, mode='a', header=header, index=False)
                 header = False
                 all_klines = [] # CLEAR RAM
@@ -188,8 +190,10 @@ def load_binance_data(symbol="PAXGUSDT", interval="15m", start_str="1700 days ag
         df_chunk = pd.DataFrame(all_klines, columns=[
             'Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume',
             'Close_time', 'Quote_vol', 'Trades', 'Taker_base', 'Taker_quote', 'Ignore'
-        ]).astype('float32')
+        ])
         df_chunk = df_chunk[['Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume', 'Taker_base']]
+        for col in ['Open', 'High', 'Low', 'Close', 'Volume', 'Taker_base']:
+            df_chunk[col] = pd.to_numeric(df_chunk[col], errors='coerce').astype('float32')
         df_chunk.to_csv(temp_file, mode='a', header=header, index=False)
 
     print(f"\nFinished fetching {total_received} bars. Loading final dataset from disk...")

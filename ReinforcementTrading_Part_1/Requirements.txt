@@ -44,6 +44,7 @@ numpy
 packaging==24.2
 pandas
 pandas-ta==0.3.14b0
+pandas-ta-classic
 parso==0.8.4
 peewee==3.18.1
 pillow==11.1.0
@@ -56,6 +57,7 @@ pycparser==2.22
 Pygments==2.19.1
 pyparsing==3.2.1
 python-dateutil==2.9.0.post0
+python-docx
 pytz==2025.1
 PyYAML==6.0.2
 pyzmq==26.4.0
@@ -65,6 +67,7 @@ six==1.17.0
 soupsieve==2.7
 stable_baselines3
 stack-data==0.6.3
+streamlit
 sympy==1.13.1
 tensorboard
 tensorboard-data-server==0.7.2

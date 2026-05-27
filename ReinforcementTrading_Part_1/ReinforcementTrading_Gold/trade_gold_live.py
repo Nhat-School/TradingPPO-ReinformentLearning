@@ -1,124 +1,97 @@
+from __future__ import annotations
+
 import os
+import sys
+from pathlib import Path
+
 import numpy as np
-import pandas as pd
-import gymnasium as gym
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import DummyVecEnv
-from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
-import torch
-import torch.nn as nn
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = SCRIPT_DIR.parent
+os.chdir(SCRIPT_DIR)
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+if str(PROJECT_DIR) not in sys.path:
+    sys.path.insert(0, str(PROJECT_DIR))
 
 from indicators_gold import load_binance_data
 from trading_env_gold import GoldScalpingEnv
+from training_runner import TimeCNNFeatureExtractor, find_latest_run, load_artifact
 
-# --- MUST REDEFINE THE CNN BRAIN SO PPO CAN LOAD IT ---
-class TimeCNNFeatureExtractor(BaseFeaturesExtractor):
-    def __init__(self, observation_space: gym.spaces.Box, features_dim: int = 128, window_size: int = 24, num_features: int = 12):
-        super().__init__(observation_space, features_dim)
-        self.window_size = window_size
-        self.num_features = num_features
-        self.extra_dim = 3
-        self.cnn = nn.Sequential(
-            nn.Conv1d(in_channels=num_features, out_channels=32, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=2),
-            nn.Conv1d(in_channels=32, out_channels=64, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=2),
-            nn.Flatten()
-        )
-        cnn_out_dim = 64 * (window_size // 4)
-        self.linear = nn.Sequential(
-            nn.Linear(cnn_out_dim + self.extra_dim, features_dim),
-            nn.ReLU()
-        )
-    def forward(self, observations: torch.Tensor) -> torch.Tensor:
-        window_flat = observations[:, :-self.extra_dim]
-        extra_data = observations[:, -self.extra_dim:]
-        batch_size = observations.shape[0]
-        window_reshaped = window_flat.view(batch_size, self.window_size, self.num_features)
-        window_transposed = window_reshaped.transpose(1, 2)
-        cnn_output = self.cnn(window_transposed)
-        combined = torch.cat([cnn_output, extra_data], dim=1)
-        return self.linear(combined)
 
-def get_live_data():
-    # Only need recent history for indicators (last several days)
-    df, feature_cols = load_binance_data("PAXGUSDT", interval="15m", start_str="5 days ago UTC", end_str="now")
-    
-    # Simple Z-score normalization based on recent context
-    stats = df[feature_cols]
-    mean = stats.mean().values
-    std = stats.std().values
-    return df, feature_cols, mean, std
+def _latest_observation(env: GoldScalpingEnv):
+    _obs, _info = env.reset()
+    env.current_step = len(env.df) - 1
+    return env._get_obs()
+
 
 def main():
-    print("="*50)
-    print("GOLD (PAXG) ORACLE LIVE PREDICTION - 15m CNN")
-    print("="*50)
+    print("=" * 50)
+    print("PAXGUSDT LIVE PREDICTION - ARTIFACT-BASED CNN PPO")
+    print("=" * 50)
 
-    # 1. Fetch latest data from Binance
-    print("Fetching latest PAXG-USDT 15m data from Binance...")
-    df, feature_cols, val_mean, val_std = get_live_data()
-
-    # ---- Env settings (MUST MATCH train_gold.py) ----
-    WINDOW = 24
-    SL_USD = 30.0
-    TP_USD = 30.0
-    SPREAD_USD = 0.0 
-
-    def make_live_env():
-        return GoldScalpingEnv(
-            df=df.tail(WINDOW+10), window_size=WINDOW, 
-            sl_usd=SL_USD, tp_usd=TP_USD, spread_usd=SPREAD_USD,
-            feature_columns=feature_cols,
-            feature_mean=val_mean, feature_std=val_std
-        )
-
-    live_vec_env = DummyVecEnv([make_live_env])
-
-    print("Loading the Oracle CNN model...")
-    model_path = "model_gold_best.zip"
-    if not os.path.exists(model_path):
-        print(f"Error: {model_path} not found! Please run train_gold.py first.")
+    run_dir = find_latest_run("PAXGUSDT", output_root=PROJECT_DIR / "training_runs")
+    if run_dir is None:
+        print("No PAXGUSDT training artifact found in training_runs/.")
+        print("Run the Streamlit trainer first so live inference can reuse saved train_stats.npz.")
         return
-        
+
+    config, stats = load_artifact(run_dir)
+    timeframe = config.get("timeframe", "15m")
+    feature_cols = config["feature_columns"]
+    window = int(config.get("window_size", 24))
+    sl_usd = float(config.get("sl_usd", 30.0))
+    tp_usd = float(config.get("tp_usd", 30.0))
+
+    print(f"Using artifact: {run_dir}")
+    print(f"Fetching latest PAXGUSDT {timeframe} bars from Binance API...")
+    df, live_feature_cols = load_binance_data(
+        "PAXGUSDT",
+        interval=timeframe,
+        start_str="30 days ago UTC",
+        end_str="now",
+    )
+    if live_feature_cols != feature_cols:
+        raise ValueError("Live feature columns do not match the saved training artifact.")
+
+    live_df = df.tail(max(window + 120, window + 5)).copy()
+    env = GoldScalpingEnv(
+        df=live_df,
+        window_size=window,
+        sl_usd=sl_usd,
+        tp_usd=tp_usd,
+        spread_usd=0.0,
+        feature_columns=feature_cols,
+        feature_mean=stats["feature_mean"],
+        feature_std=stats["feature_std"],
+    )
+
     custom_objects = {
         "features_extractor_class": TimeCNNFeatureExtractor,
-        "features_extractor_kwargs": dict(features_dim=128, window_size=WINDOW, num_features=len(feature_cols))
+        "features_extractor_kwargs": dict(features_dim=128, window_size=window, num_features=len(feature_cols)),
     }
-    
-    model = PPO.load("model_gold_best", env=live_vec_env, custom_objects=custom_objects)
+    model = PPO.load(str(Path(run_dir) / "model"), custom_objects=custom_objects)
 
-    # Get the very latest observation
-    obs = live_vec_env.reset()
-    
-    # Predict the last action
-    action, _states = model.predict(obs, deterministic=True)
-    last_action = action[0]
-    
-    action_map = {0: "LONG", 1: "SHORT"}
-    mapped_action = action_map[last_action]
-    
-    current_price = df.iloc[-1]['Close']
-    current_time = df.index[-1]
-    
-    print("\n" + "="*50)
+    obs = _latest_observation(env)
+    action, _states = model.predict(np.expand_dims(obs, axis=0), deterministic=True)
+    mapped_action = "LONG" if int(action[0]) == 0 else "SHORT"
+
+    current_price = float(live_df.iloc[-1]["Close"])
+    current_time = live_df.index[-1]
+
+    print("\n" + "=" * 50)
     print(f"LATEST BAR TIME: {current_time}")
     print(f"CURRENT GOLD PRICE: ${current_price:,.2f}")
     print("-" * 50)
-    
     if mapped_action == "LONG":
-        print("MODEL RECOMMENDATION: 🟢 BUY / LONG")
-        print(f"Signal: Bullish Patterns detected by CNN")
-        print(f"TP Target: ${current_price + TP_USD:,.2f} | SL Exit: ${current_price - SL_USD:,.2f}")
+        print("MODEL RECOMMENDATION: BUY / LONG")
+        print(f"TP Target: ${current_price + tp_usd:,.2f} | SL Exit: ${current_price - sl_usd:,.2f}")
     else:
-        print("MODEL RECOMMENDATION: 🔴 SELL / SHORT")
-        print(f"Signal: Bearish Patterns detected by CNN")
-        print(f"TP Target: ${current_price - TP_USD:,.2f} | SL Exit: ${current_price + SL_USD:,.2f}")
-    
-    print("\n[!] Disclaimer: Accuracy ~52.3%. Always trade with caution.")
-    print("="*50)
+        print("MODEL RECOMMENDATION: SELL / SHORT")
+        print(f"TP Target: ${current_price - tp_usd:,.2f} | SL Exit: ${current_price + sl_usd:,.2f}")
+    print("=" * 50)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

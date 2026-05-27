@@ -2,6 +2,7 @@
 venv/
 env/
 .env
+.venv/
 
 # Python Caches
 __pycache__/
@@ -13,12 +14,10 @@ __pycache__/
 # Data and Logs
 data/
 tensorboard_log/
-logs/
 
 # Intermediate checkpoints and models
 checkpoints/
 checkpoints_btc/
-best_model/
 model_btc_live.zip
 model_eurusd_best.zip
 

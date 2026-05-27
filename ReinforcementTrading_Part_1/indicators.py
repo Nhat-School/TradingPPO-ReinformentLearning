@@ -1,9 +1,11 @@
+import os
+import re
+import time
+
 import pandas as pd
 import pandas_ta_classic as ta
-import yfinance as yf
 import requests
-import time
-import os
+import yfinance as yf
 
 
 def preprocess_technical_indicators(df: pd.DataFrame):
@@ -71,36 +73,70 @@ def load_yfinance_data(symbol: str = "BTC-USD", period: str = "120d", interval: 
         df.columns = df.columns.get_level_values(0)
     return preprocess_technical_indicators(df)
 
-def load_binance_data(symbol="BTCUSDT", start_str="2019-01-01", end_str="2026-12-31"):
+def _safe_cache_part(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value)).strip("_")
+
+
+def _to_binance_millis(value: str) -> int:
+    value = str(value)
+    if value.lower() == "now":
+        ts = pd.Timestamp.now(tz="UTC")
+    elif value.endswith("ago UTC"):
+        days = int(value.split(" ")[0])
+        ts = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=days)
+    else:
+        ts = pd.Timestamp(value)
+        if ts.tzinfo is None:
+            ts = ts.tz_localize("UTC")
+        else:
+            ts = ts.tz_convert("UTC")
+    return int(ts.timestamp() * 1000)
+
+
+def load_binance_data(
+    symbol="BTCUSDT",
+    start_str="2019-01-01",
+    end_str="2026-12-31",
+    interval="1h",
+    use_cache=True,
+    cache_dir="data",
+):
     """
     Fetches comprehensive historical data from Binance API.
     """
-    cache_file = f"data/binance_{symbol}_{start_str}_{end_str}.csv"
-    if os.path.exists(cache_file):
+    cache_file = os.path.join(
+        cache_dir,
+        f"binance_{symbol}_{interval}_{_safe_cache_part(start_str)}_{_safe_cache_part(end_str)}.csv",
+    )
+    if use_cache and os.path.exists(cache_file):
         print(f"Loading cached data from {cache_file}...")
         df = pd.read_csv(cache_file, index_col=0)
         df.index = pd.to_datetime(df.index)
         return preprocess_technical_indicators(df)
 
-    print(f"Fetching {symbol} from Binance ({start_str} to {end_str})...")
-    os.makedirs("data", exist_ok=True)
+    print(f"Fetching {symbol} {interval} from Binance ({start_str} to {end_str})...")
+    if use_cache:
+        os.makedirs(cache_dir, exist_ok=True)
     
     url = "https://api.binance.com/api/v3/klines"
-    start_ts = int(pd.Timestamp(start_str).timestamp() * 1000)
-    end_ts = int(pd.Timestamp(end_str).timestamp() * 1000)
+    start_ts = _to_binance_millis(start_str)
+    end_ts = _to_binance_millis(end_str)
     
     all_klines = []
     curr_start = start_ts
     
     while curr_start < end_ts:
-        params = {"symbol": symbol, "interval": "1h", "startTime": curr_start, "endTime": end_ts, "limit": 1000}
-        res = requests.get(url, params=params)
+        params = {"symbol": symbol, "interval": interval, "startTime": curr_start, "endTime": end_ts, "limit": 1000}
+        res = requests.get(url, params=params, timeout=15)
         data = res.json()
         if not data or not isinstance(data, list): break
         all_klines.extend(data)
         curr_start = data[-1][0] + 1
         print(f"  Received {len(all_klines)} bars...", end="\r")
         time.sleep(0.1)
+
+    if not all_klines:
+        raise RuntimeError(f"No Binance bars returned for {symbol} {interval} from {start_str} to {end_str}.")
 
     df = pd.DataFrame(all_klines, columns=[
         'Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume',
@@ -109,5 +145,6 @@ def load_binance_data(symbol="BTCUSDT", start_str="2019-01-01", end_str="2026-12
     df['Gmt time'] = pd.to_datetime(df['Timestamp'], unit='ms')
     df = df[['Gmt time', 'Open', 'High', 'Low', 'Close', 'Volume']]
     
-    df.to_csv(cache_file)
+    if use_cache:
+        df.to_csv(cache_file)
     return preprocess_technical_indicators(df)

@@ -1,4 +1,5 @@
-strategy.ipynb
 .DS_Store
 **/venv/
-*.pdf
+**/.venv/
+**/__pycache__/
+*.pyc

@@ -187,10 +187,10 @@ class ForexTradingEnv(gym.Env):
     def _apply_optional_normalization(self, obs: np.ndarray) -> np.ndarray:
         if self.feature_mean is None or self.feature_std is None:
             return obs
-        mean = self.feature_mean.reshape(1, 1, -1)
-        std = self.feature_std.reshape(1, 1, -1)
+        mean = self.feature_mean.reshape(1, -1)
+        std = self.feature_std.reshape(1, -1)
         std = np.where(std == 0, 1.0, std)
-        return (obs - mean) / std
+        return ((obs - mean) / std).astype(np.float32)
 
     def _get_observation(self):
         start = self.current_step - self.window_size
