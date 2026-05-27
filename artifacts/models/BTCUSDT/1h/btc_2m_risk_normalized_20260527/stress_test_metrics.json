@@ -1,0 +1,13 @@
+{
+  "cost_x2": {
+    "initial_equity": 10000.0,
+    "final_equity": 9044.54333723345,
+    "return_pct": -9.554566627665494,
+    "max_drawdown_pct": -13.096236672048855,
+    "sharpe_simple": -0.6951448465185701,
+    "num_points": 2560,
+    "total_trades": 343,
+    "winning_trades": 121,
+    "win_rate_pct": 35.27696793002915
+  }
+}

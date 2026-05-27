@@ -1,0 +1,12 @@
+numpy
+pandas
+pandas-ta-classic
+requests
+matplotlib
+gymnasium
+stable-baselines3
+torch
+streamlit
+python-docx
+optuna
+sb3-contrib
