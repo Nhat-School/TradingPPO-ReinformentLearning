@@ -79,9 +79,21 @@ def write_progress(
         payload["current_steps"] = int(current_steps)
     if total_steps is not None:
         payload["total_steps"] = int(total_steps)
+    existing = {}
     progress_path = Path(path)
+    if progress_path.exists():
+        existing = _safe_read_json(progress_path)
+    if existing.get("pid"):
+        payload["pid"] = existing["pid"]
     progress_path.parent.mkdir(parents=True, exist_ok=True)
     progress_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _safe_read_json(path: Path) -> dict[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
 
 
 class FileProgressCallback(BaseCallback):

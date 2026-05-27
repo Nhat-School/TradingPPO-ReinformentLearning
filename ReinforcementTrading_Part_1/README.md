@@ -90,7 +90,7 @@ Dashboard hỗ trợ:
 - Card watchlist: `BTCUSDT`, `ETHUSDT`, `NEARUSDT`, `SOLUSDT`, `BNBUSDT`, `XRPUSDT`, `ADAUSDT`, `DOGEUSDT`, `PAXGUSDT`.
 - Tài sản đã có model sẽ có viền sáng và hiện return/drawdown mới nhất.
 - Chọn symbol, timeframe, số timesteps, model rồi bấm `Run`.
-- UI đã bỏ các setting rườm rà khỏi màn hình chính. Mặc định dùng lookback `730` ngày, reward chống overfit `pnl_drawdown`, seed `42`, Optuna trial `1`.
+- UI đã bỏ các setting rườm rà khỏi màn hình chính. Mặc định dùng lookback `730` ngày, reward chống overfit `pnl_drawdown`, seed `42`, và tắt Optuna trên UI để tiến trình đi thẳng vào timesteps train.
 - Khi bấm `Run`, UI khởi động training dưới dạng background job, hiện stage, progress bar, current step, target steps, remaining steps, artifact folder và tail log. Vì vậy trình duyệt không còn bị màn hình đen/kẹt khi train lâu.
 - Dashboard không fetch Binance `exchangeInfo` lúc mở trang nữa để tránh trắng màn hình khi API/mạng chậm; dữ liệu train vẫn fetch trực tiếp từ Binance sau khi bấm `Run`.
 - Sau train sẽ hiện metrics, selected strategy, và hình: equity curve, drawdown curve, baseline comparison, stress-test comparison.

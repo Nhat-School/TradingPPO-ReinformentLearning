@@ -154,9 +154,39 @@ def _read_json(path: Path) -> dict:
     if not path.exists():
         return {}
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def discover_latest_job() -> dict | None:
+    if not JOBS_ROOT.exists():
+        return None
+    candidates: list[dict] = []
+    for status_path in JOBS_ROOT.glob("*/status.json"):
+        payload = _read_json(status_path)
+        if not payload:
+            continue
+        job_dir = status_path.parent
+        parts = job_dir.name.split("_")
+        candidates.append(
+            {
+                "pid": int(payload.get("pid", 0)),
+                "job_dir": str(job_dir),
+                "progress_file": str(status_path),
+                "log_file": str(job_dir / "train.log"),
+                "symbol": parts[0] if parts else "UNKNOWN",
+                "timeframe": parts[1] if len(parts) > 1 else "",
+                "updated_at": payload.get("updated_at", ""),
+                "stage": payload.get("stage", ""),
+            }
+        )
+    if not candidates:
+        return None
+    running = [job for job in candidates if job["pid"] and _is_process_running(job["pid"])]
+    pool = running or candidates
+    return sorted(pool, key=lambda item: item.get("updated_at", ""), reverse=True)[0]
 
 
 def start_training_job(config: TrainingConfig) -> dict:
@@ -204,6 +234,9 @@ def start_training_job(config: TrainingConfig) -> dict:
                 "progress": 0.0,
                 "message": "Training job started in background",
                 "updated_at": datetime.now(timezone.utc).isoformat(),
+                "pid": process.pid,
+                "current_steps": 0,
+                "total_steps": config.total_timesteps,
             },
             indent=2,
         ),
@@ -223,7 +256,15 @@ def show_active_job(job: dict):
     progress_path = Path(job["progress_file"])
     log_path = Path(job["log_file"])
     status = _read_json(progress_path)
-    running = _is_process_running(int(job["pid"]))
+    if not status:
+        status = {
+            "stage": "starting",
+            "progress": 0.0,
+            "message": "Preparing training job...",
+            "pid": job.get("pid", 0),
+        }
+    pid = int(status.get("pid") or job.get("pid") or 0)
+    running = _is_process_running(pid) if pid else False
     stage = status.get("stage", "starting")
     progress = float(status.get("progress", 0.0))
     message = status.get("message", "Waiting for trainer output...")
@@ -279,37 +320,37 @@ train_tab, signal_tab, artifacts_tab = st.tabs(["Train", "Latest Signal", "Artif
 
 with train_tab:
     st.subheader("Run Training")
-    if st.session_state.active_job:
-        show_active_job(st.session_state.active_job)
+    active_job = st.session_state.active_job or discover_latest_job()
+    if active_job:
+        show_active_job(active_job)
 
     if st.session_state.last_run_dir:
         st.success(f"Latest completed run: {st.session_state.last_run_symbol}")
         show_artifact(st.session_state.last_run_dir)
 
-    with st.form("training_form"):
-        selected_symbol = st.selectbox(
-            "Symbol",
-            symbols,
-            index=symbols.index("BTCUSDT") if "BTCUSDT" in symbols else 0,
-            key="train_symbol",
+    selected_symbol = st.selectbox(
+        "Symbol",
+        symbols,
+        index=symbols.index("BTCUSDT") if "BTCUSDT" in symbols else 0,
+        key="train_symbol",
+    )
+    timeframe = st.selectbox("Timeframe", ["15m", "1h", "4h", "1d"], index=2, key="train_timeframe")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        timesteps = st.number_input(
+            "Timesteps",
+            min_value=1_000,
+            max_value=10_000_000,
+            value=1_000_000,
+            step=10_000,
+            key="train_timesteps",
         )
-        timeframe = st.selectbox("Timeframe", ["15m", "1h", "4h", "1d"], index=2, key="train_timeframe")
-        col_a, col_b = st.columns(2)
-        with col_a:
-            timesteps = st.number_input(
-                "Timesteps",
-                min_value=1_000,
-                max_value=10_000_000,
-                value=1_000_000,
-                step=10_000,
-                key="train_timesteps",
-            )
-        with col_b:
-            policy_type = st.selectbox("Model", ["cnn1d", "mlp"], index=0, key="train_policy_type")
-        lookback_days = 730
-        hpo_trials = 1
-        st.caption("Mặc định: Binance lookback 730 ngày, reward chống overfit pnl_drawdown, seed 42, Optuna trial 1.")
-        submitted = st.form_submit_button("Run", type="primary")
+    with col_b:
+        policy_type = st.selectbox("Model", ["cnn1d", "mlp"], index=0, key="train_policy_type")
+    lookback_days = 730
+    hpo_trials = 0
+    st.caption("Mặc định: Binance lookback 730 ngày, reward chống overfit pnl_drawdown, seed 42. Optuna tắt trên UI để progress vào thẳng timesteps.")
+    submitted = st.button("Run", type="primary", key="run_training_button")
 
     if submitted:
         config = TrainingConfig(
