@@ -5,7 +5,7 @@ import os
 import shutil
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import streamlit as st
@@ -111,8 +111,21 @@ def show_artifact(run_dir: str | Path):
     st.code(str(run_path))
 
     metrics_path = run_path / "metrics.json"
+    train_metrics_path = run_path / "train_metrics.json"
     if metrics_path.exists():
         metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+        train_metrics = (
+            json.loads(train_metrics_path.read_text(encoding="utf-8"))
+            if train_metrics_path.exists()
+            else {}
+        )
+        if train_metrics:
+            st.markdown("Train/Test performance")
+            compare_cols = st.columns(4)
+            compare_cols[0].metric("Train return", f"{train_metrics.get('return_pct', 0):.2f}%")
+            compare_cols[1].metric("Train max DD", f"{train_metrics.get('max_drawdown_pct', 0):.2f}%")
+            compare_cols[2].metric("Test return", f"{metrics.get('return_pct', 0):.2f}%")
+            compare_cols[3].metric("Test max DD", f"{metrics.get('max_drawdown_pct', 0):.2f}%")
         cols = st.columns(5)
         cols[0].metric("Final equity", f"${metrics.get('final_equity', 0):,.2f}")
         cols[1].metric("Return", f"{metrics.get('return_pct', 0):.2f}%")
@@ -122,6 +135,7 @@ def show_artifact(run_dir: str | Path):
         st.json(metrics)
 
     chart_files = [
+        ("Train equity", "train_equity_curve.png"),
         ("Equity curve", "equity_curve.png"),
         ("Drawdown curve", "drawdown_curve.png"),
         ("Baseline comparison", "baseline_comparison.png"),
@@ -230,6 +244,10 @@ def start_training_job(config: TrainingConfig) -> dict:
         "--progress-file",
         str(progress_file),
     ]
+    if config.start_date:
+        cmd.extend(["--start-date", config.start_date])
+    if config.end_date:
+        cmd.extend(["--end-date", config.end_date])
     env = os.environ.copy()
     env["PYTHONPATH"] = str(SRC_ROOT)
     with log_file.open("w", encoding="utf-8") as log:
@@ -357,6 +375,25 @@ with train_tab:
         key="train_symbol",
     )
     timeframe = st.selectbox("Timeframe", ["15m", "1h", "4h", "1d"], index=2, key="train_timeframe")
+    min_binance_date = date(2017, 7, 1)
+    today = date.today()
+    date_col_a, date_col_b = st.columns(2)
+    with date_col_a:
+        start_date = st.date_input(
+            "Start date",
+            value=date(2020, 1, 1),
+            min_value=min_binance_date,
+            max_value=today,
+            key="train_start_date",
+        )
+    with date_col_b:
+        end_date = st.date_input(
+            "End date",
+            value=date(2023, 2, 2),
+            min_value=min_binance_date,
+            max_value=today,
+            key="train_end_date",
+        )
     col_a, col_b = st.columns(2)
     with col_a:
         timesteps = st.number_input(
@@ -371,27 +408,37 @@ with train_tab:
         policy_type = st.selectbox("Model", ["cnn1d", "mlp"], index=0, key="train_policy_type")
     lookback_days = 730
     hpo_trials = 0
-    st.caption("Mặc định: Binance lookback 730 ngày, reward chống overfit pnl_drawdown, seed 42. Optuna tắt trên UI để progress vào thẳng timesteps.")
+    st.caption(
+        "Dữ liệu lấy theo khoảng ngày đã chọn. Split theo thời gian: 70% train, "
+        "15% validation chọn checkpoint, 15% test OOS. UI sẽ hiện return/drawdown cho train và test."
+    )
     submitted = st.button("Run", type="primary", key="run_training_button")
 
     if submitted:
-        config = TrainingConfig(
-            symbol=selected_symbol,
-            timeframe=timeframe,
-            total_timesteps=int(timesteps),
-            lookback_days=int(lookback_days),
-            reward_mode="pnl_drawdown",
-            policy_type=policy_type,
-            hpo_trials=int(hpo_trials),
-            seed=42,
-        )
-        st.info(
-            "Received config: "
-            f"{config.symbol} | {config.timeframe} | {config.total_timesteps:,} steps | "
-            f"{config.policy_type} | Optuna trials={config.hpo_trials}"
-        )
-        st.session_state.active_job = start_training_job(config)
-        st.rerun()
+        if start_date >= end_date:
+            st.error("Start date phải nhỏ hơn End date.")
+        elif start_date < min_binance_date:
+            st.error("Binance spot API không có dữ liệu training trước 2017-07-01.")
+        else:
+            config = TrainingConfig(
+                symbol=selected_symbol,
+                timeframe=timeframe,
+                total_timesteps=int(timesteps),
+                lookback_days=int(lookback_days),
+                start_date=start_date.isoformat(),
+                end_date=end_date.isoformat(),
+                reward_mode="pnl_drawdown",
+                policy_type=policy_type,
+                hpo_trials=int(hpo_trials),
+                seed=42,
+            )
+            st.info(
+                "Received config: "
+                f"{config.symbol} | {config.timeframe} | {config.start_date}->{config.end_date} | "
+                f"{config.total_timesteps:,} steps | {config.policy_type}"
+            )
+            st.session_state.active_job = start_training_job(config)
+            st.rerun()
 
 with signal_tab:
     st.subheader("Latest Signal From Best Model")

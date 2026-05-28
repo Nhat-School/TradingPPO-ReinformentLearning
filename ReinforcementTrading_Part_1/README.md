@@ -89,8 +89,10 @@ Dashboard hỗ trợ:
 - Fetch danh sách cặp `USDT` đang trading từ Binance `exchangeInfo`.
 - Card watchlist: `BTCUSDT`, `ETHUSDT`, `NEARUSDT`, `SOLUSDT`, `BNBUSDT`, `XRPUSDT`, `ADAUSDT`, `DOGEUSDT`, `PAXGUSDT`.
 - Tài sản đã có model sẽ có viền sáng và hiện return/drawdown mới nhất.
-- Chọn symbol, timeframe, số timesteps, model rồi bấm `Run`.
-- UI đã bỏ các setting rườm rà khỏi màn hình chính. Mặc định dùng lookback `730` ngày, reward chống overfit `pnl_drawdown`, seed `42`, và tắt Optuna trên UI để tiến trình đi thẳng vào timesteps train.
+- Chọn symbol, timeframe, khoảng ngày train, số timesteps, model rồi bấm `Run`.
+- UI đã bỏ các setting rườm rà khỏi màn hình chính. Dữ liệu lấy theo `Start date` và `End date` bạn chọn, reward chống overfit `pnl_drawdown`, seed `42`, và tắt Optuna trên UI để tiến trình đi thẳng vào timesteps train.
+- Hệ thống tự split theo thời gian: `70%` đầu để train, `15%` tiếp theo để chọn checkpoint validation, `15%` cuối để backtest test/OOS. Sau train UI hiện riêng `Train return`, `Train max DD`, `Test return`, `Test max DD`.
+- UI chặn ngày trước `2017-07-01` vì Binance spot API không có dữ liệu phù hợp cho training trước mốc này. Nếu một coin niêm yết muộn hoặc khoảng ngày quá ngắn, backend sẽ báo lỗi rõ để bạn chọn lại khoảng ngày.
 - Khi bấm `Run`, UI khởi động training dưới dạng background job, hiện stage, progress bar, current step, target steps, remaining steps, artifact folder và tail log. Vì vậy trình duyệt không còn bị màn hình đen/kẹt khi train lâu.
 - Dashboard không fetch Binance `exchangeInfo` lúc mở trang nữa để tránh trắng màn hình khi API/mạng chậm; dữ liệu train vẫn fetch trực tiếp từ Binance sau khi bấm `Run`.
 - Sau train sẽ hiện metrics, selected strategy, và hình: equity curve, drawdown curve, baseline comparison, stress-test comparison.
@@ -103,8 +105,9 @@ Smoke test nên dùng:
 ```text
 Symbol: BTCUSDT
 Timeframe: 1h
+Start date: 2020-01-01
+End date: 2023-02-02
 Timesteps: 10,000 đến 50,000
-Lookback days: 180 đến 730
 Reward mode: pnl_drawdown
 Policy type: mlp
 Optuna trials: 0
@@ -115,25 +118,26 @@ Run BTC chính cho báo cáo:
 ```text
 Symbol: BTCUSDT
 Timeframe: 1h
+Start date: 2020-01-01
+End date: 2023-02-02
 Timesteps: 2,000,000
-Lookback days: 730
 Reward mode: pnl_drawdown
 Policy type: mlp
 ```
 
-Run kiểm tra cấu hình CNN/Optuna bạn yêu cầu. Đây cũng là cấu hình mặc định đang được đặt sẵn trên UI để bạn mở lên là thấy ngay:
+Run kiểm tra cấu hình CNN. UI hiện tại cố ý bỏ Optuna khỏi màn hình chính để đỡ rườm rà; nếu cần Optuna thì chạy bằng CLI như ví dụ bên dưới.
 
 ```text
 Symbol: BTCUSDT
 Timeframe: 4h
+Start date: 2020-01-01
+End date: 2023-02-02
 Timesteps: 1,000,000
-Lookback days: 730
 Reward mode: pnl_drawdown
 Policy type: cnn1d
-Optuna trials: 1
 ```
 
-Mình đã chạy kiểm thử rút gọn cùng cấu hình này với `100,000` timesteps để xác nhận pipeline không lỗi. Kết quả PPO OOS hiện tại là `0.00%` vì model chọn không vào lệnh; hệ thống vì vậy đánh dấu cảnh báo anti-overfit và chọn baseline RSI `+19.13%` trong `selected_strategy.json`. Muốn kiểm tra PPO lâu hơn, giữ nguyên UI và bấm `Run` với `1,000,000` timesteps.
+Mình đã chạy kiểm thử rút gọn để xác nhận pipeline không lỗi. Kết quả PPO ngắn chỉ dùng để smoke test, không dùng để kết luận hiệu suất cuối cùng. Muốn kiểm tra PPO lâu hơn, giữ nguyên UI và bấm `Run` với `1,000,000` timesteps.
 
 Progress job tạm thời được ghi vào `artifacts/jobs/` và đã được ignore khỏi Git. Model/metrics/chart thật được chuẩn hóa vào `artifacts/models/<SYMBOL>/<TIMEFRAME>/best/`.
 
@@ -143,7 +147,12 @@ Progress job tạm thời được ghi vào `artifacts/jobs/` và đã được 
 cd ReinforcementTrading_Part_1
 source .venv/bin/activate
 export PYTHONPATH="$PWD"
-python -m trading_bot.cli train --symbol BTCUSDT --timeframe 1h --timesteps 50000 --lookback-days 365
+python -m trading_bot.cli train \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --timesteps 50000 \
+  --start-date 2020-01-01 \
+  --end-date 2023-02-02
 ```
 
 Run BTC 2M:
@@ -153,7 +162,8 @@ python -m trading_bot.cli train \
   --symbol BTCUSDT \
   --timeframe 1h \
   --timesteps 2000000 \
-  --lookback-days 730 \
+  --start-date 2020-01-01 \
+  --end-date 2023-02-02 \
   --reward-mode pnl_drawdown \
   --policy-type mlp \
   --run-name btc_2m_risk_normalized_20260527
@@ -166,7 +176,8 @@ python -m trading_bot.cli train \
   --symbol BTCUSDT \
   --timeframe 4h \
   --timesteps 1000000 \
-  --lookback-days 730 \
+  --start-date 2020-01-01 \
+  --end-date 2023-02-02 \
   --reward-mode pnl_drawdown \
   --policy-type cnn1d \
   --hpo-trials 1 \
@@ -193,13 +204,16 @@ artifacts/models/<SYMBOL>/<TIMEFRAME>/best/
 ├── model.zip
 ├── train_config.json
 ├── train_stats.npz
+├── train_metrics.json
 ├── metrics.json
+├── test_metrics.json
 ├── baseline_metrics.json
 ├── walk_forward_metrics.json
 ├── stress_test_metrics.json
 ├── overfit_report.json
 ├── selected_strategy.json
 ├── best_selection.json
+├── train_equity_curve.png
 ├── equity_curve.png
 ├── drawdown_curve.png
 ├── baseline_comparison.png

@@ -14,7 +14,7 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
 
 from .config import ARTIFACT_ROOT, EnvSettings, TrainingConfig, default_env_settings
-from .data import fetch_klines
+from .data import fetch_klines, to_millis
 from .env import MultiAssetTradingEnv
 from .evaluation import (
     baseline_curves,
@@ -30,6 +30,25 @@ from .features import add_features
 from .modeling import build_model
 
 
+MIN_BINANCE_SPOT_DATE = datetime(2017, 7, 1, tzinfo=timezone.utc)
+
+
+def resolve_date_range(config: TrainingConfig) -> tuple[str, str]:
+    start = config.start_date or f"{config.lookback_days} days ago UTC"
+    end = config.end_date or "now"
+    start_ms = to_millis(start)
+    end_ms = to_millis(end)
+    min_ms = to_millis(MIN_BINANCE_SPOT_DATE)
+    if start_ms < min_ms:
+        raise ValueError(
+            "Binance spot API does not have usable training data before 2017-07-01. "
+            "Please choose a later start date."
+        )
+    if start_ms >= end_ms:
+        raise ValueError("Start date must be earlier than end date.")
+    return start, end
+
+
 def split_train_val_test(df, train_ratio=0.70, val_ratio=0.15):
     train_end = int(len(df) * train_ratio)
     val_end = int(len(df) * (train_ratio + val_ratio))
@@ -37,7 +56,10 @@ def split_train_val_test(df, train_ratio=0.70, val_ratio=0.15):
     val = df.iloc[train_end:val_end].copy()
     test = df.iloc[val_end:].copy()
     if min(len(train), len(val), len(test)) < 100:
-        raise ValueError("Not enough rows for train/validation/test split. Increase lookback days.")
+        raise ValueError(
+            "Not enough rows for train/validation/test split. "
+            "Choose a wider date range or a smaller timeframe."
+        )
     return train, val, test
 
 
@@ -190,10 +212,22 @@ def run_hpo(config: TrainingConfig, train_df, val_df, env_params, run_dir: Path,
 
 def run_training(config: TrainingConfig, progress_path: str | Path | None = None) -> dict[str, Any]:
     symbol = config.symbol.upper()
+    start, end = resolve_date_range(config)
     run_dir = make_run_dir(config)
-    write_progress(progress_path, "fetching", 0.03, f"Fetching {symbol} {config.timeframe} candles from Binance API", run_dir)
+    write_progress(
+        progress_path,
+        "fetching",
+        0.03,
+        f"Fetching {symbol} {config.timeframe} candles from Binance API ({start} -> {end})",
+        run_dir,
+    )
 
-    raw = fetch_klines(symbol, config.timeframe, start=f"{config.lookback_days} days ago UTC", end="now")
+    raw = fetch_klines(symbol, config.timeframe, start=start, end=end)
+    if raw.empty:
+        raise RuntimeError(
+            f"No Binance bars returned for {symbol} {config.timeframe}. "
+            "Check the selected date range and the symbol listing date."
+        )
     write_progress(progress_path, "features", 0.08, "Building technical, volume and order-flow features", run_dir)
     df, feature_cols = add_features(raw)
     write_progress(progress_path, "split", 0.10, "Splitting train/validation/test by time order", run_dir)
@@ -221,12 +255,20 @@ def run_training(config: TrainingConfig, progress_path: str | Path | None = None
     progress_callback = FileProgressCallback(progress_path, config.total_timesteps, run_dir)
     model.learn(total_timesteps=config.total_timesteps, callback=CallbackList([callback, progress_callback]))
 
-    write_progress(progress_path, "evaluating", 0.78, "Loading best validation checkpoint and evaluating OOS test set", run_dir)
+    write_progress(
+        progress_path,
+        "evaluating",
+        0.78,
+        "Loading best validation checkpoint and evaluating train/test sets",
+        run_dir,
+    )
     best_path = run_dir / "best_model" / "best_model.zip"
     model_cls = type(model)
     best_model = model_cls.load(str(best_path), env=test_env) if best_path.exists() else model
     best_model.save(str(run_dir / "model"))
 
+    train_eval_env = DummyVecEnv([lambda: make_env(train_df, params, False, None)])
+    train_curve, train_metrics = evaluate_model(best_model, train_eval_env, config.timeframe)
     ppo_curve, ppo_metrics = evaluate_model(best_model, test_env, config.timeframe)
     write_progress(progress_path, "baselines", 0.84, "Running Buy & Hold, MA, RSI and random baselines", run_dir)
     base = baseline_curves(test_df, config.timeframe, seed=config.seed)
@@ -244,6 +286,8 @@ def run_training(config: TrainingConfig, progress_path: str | Path | None = None
 
     write_progress(progress_path, "saving", 0.94, "Saving model, metrics, charts and overfit report", run_dir)
     write_json(run_dir / "metrics.json", ppo_metrics)
+    write_json(run_dir / "test_metrics.json", ppo_metrics)
+    write_json(run_dir / "train_metrics.json", train_metrics)
     write_json(run_dir / "baseline_metrics.json", {name: item["metrics"] for name, item in base.items()})
     write_json(run_dir / "walk_forward_metrics.json", walk_forward_report(ppo_curve, config.timeframe))
     write_json(run_dir / "stress_test_metrics.json", {"cost_x2": stress_metrics})
@@ -255,6 +299,11 @@ def run_training(config: TrainingConfig, progress_path: str | Path | None = None
     full_config.update(
         {
             "source": "Binance API",
+            "requested_start": start,
+            "requested_end": end,
+            "actual_start": str(raw.index.min()),
+            "actual_end": str(raw.index.max()),
+            "split_rule": "70% train, 15% validation checkpoint selection, 15% OOS test",
             "feature_columns": feature_cols,
             "train_rows": len(train_df),
             "validation_rows": len(val_df),
@@ -265,7 +314,8 @@ def run_training(config: TrainingConfig, progress_path: str | Path | None = None
     )
     write_json(run_dir / "train_config.json", full_config)
 
-    save_line_chart(run_dir / "equity_curve.png", f"{symbol} PPO Equity Curve", {"PPO": ppo_curve})
+    save_line_chart(run_dir / "train_equity_curve.png", f"{symbol} PPO Train Equity Curve", {"Train PPO": train_curve})
+    save_line_chart(run_dir / "equity_curve.png", f"{symbol} PPO Test Equity Curve", {"Test PPO": ppo_curve})
     save_drawdown_chart(run_dir / "drawdown_curve.png", ppo_curve)
     save_line_chart(
         run_dir / "baseline_comparison.png",

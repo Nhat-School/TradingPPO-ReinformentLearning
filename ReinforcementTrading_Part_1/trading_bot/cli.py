@@ -18,6 +18,8 @@ def main():
     train.add_argument("--timeframe", default="1h")
     train.add_argument("--timesteps", type=int, default=600_000)
     train.add_argument("--lookback-days", type=int, default=730)
+    train.add_argument("--start-date", default=None)
+    train.add_argument("--end-date", default=None)
     train.add_argument("--reward-mode", default="pnl_drawdown", choices=["pnl", "pnl_drawdown", "sharpe_proxy"])
     train.add_argument("--policy-type", default="mlp", choices=["mlp", "cnn1d", "recurrent_lstm"])
     train.add_argument("--hpo-trials", type=int, default=0)
@@ -37,6 +39,8 @@ def main():
                 timeframe=args.timeframe,
                 total_timesteps=args.timesteps,
                 lookback_days=args.lookback_days,
+                start_date=args.start_date,
+                end_date=args.end_date,
                 reward_mode=args.reward_mode,
                 policy_type=args.policy_type,
                 hpo_trials=args.hpo_trials,

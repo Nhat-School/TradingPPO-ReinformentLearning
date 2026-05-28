@@ -32,6 +32,8 @@ class TrainingConfig:
     timeframe: str = "1h"
     total_timesteps: int = 600_000
     lookback_days: int = 730
+    start_date: str | None = None
+    end_date: str | None = None
     reward_mode: str = "pnl_drawdown"
     policy_type: str = "mlp"
     hpo_trials: int = 0
