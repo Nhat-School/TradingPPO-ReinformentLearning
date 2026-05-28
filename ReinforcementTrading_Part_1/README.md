@@ -1,8 +1,24 @@
-# ReinforcementTrading Part 1
+# ReinforcementTrading Part 1 - AI Handoff Context
 
-Pipeline chính của dự án trading bot nằm trong thư mục này. Bản nâng cấp đã được gom lại để không tạo thêm một dự án riêng ở root: UI, trainer, live signal, model artifacts và báo cáo bổ sung đều nằm dưới `ReinforcementTrading_Part_1/`.
+Đây là README duy nhất cần đọc để tiếp quản dự án. File này được viết như một bản context cho người mới hoặc AI khác: đọc xong phải biết dự án đang làm gì, chạy ở đâu, sửa file nào, artifact nằm đâu, và những quyết định kỹ thuật quan trọng nào không nên phá.
+
+Pipeline chính của dự án trading bot nằm trong thư mục `ReinforcementTrading_Part_1/`. Bản nâng cấp đã được gom lại để không tạo thêm một dự án riêng ở root: UI, trainer, live signal, model artifacts và báo cáo bổ sung đều nằm dưới thư mục này.
 
 > Dự án dùng cho nghiên cứu, backtest và paper-trading. Code không đặt lệnh thật và không phải lời khuyên tài chính.
+
+## Handoff Nhanh Cho AI Khác
+
+- Luôn làm việc trong `ReinforcementTrading_Part_1/`, không tạo thêm project song song ở root.
+- Chỉ có một README chính: `ReinforcementTrading_Part_1/README.md`. Root `README.md` ngắn đã bị xóa theo yêu cầu để tránh nhầm.
+- UI chính chạy bằng `./run_ui.sh` hoặc `python -m streamlit run trading_bot/ui/app.py`.
+- Dữ liệu train lấy trực tiếp từ Binance API, không dùng CSV tải sẵn làm nguồn chính.
+- Multi-asset nghĩa là nhiều model riêng cho nhiều symbol/timeframe, dùng chung một pipeline PPO.
+- Best model chuẩn nằm tại `artifacts/models/<SYMBOL>/<TIMEFRAME>/best/`.
+- Live signal phải dùng best artifact qua `trading_bot/live.py`, không lấy đại folder mới nhất.
+- Không xóa model/artifact chưa rõ nguồn gốc. Các model train lâu có thể rất quý với user.
+- Các thư mục cache/job/venv không nên đưa vào Git; model/artifact quan trọng có thể track nếu dung lượng cho phép.
+- Nếu cần thay đổi UI, ưu tiên giữ đơn giản: symbol, timeframe, start date, end date, timesteps, model, Run.
+- Nếu cần đánh giá overfitting, dùng train/test return, drawdown, baseline, stress test, walk-forward và selected strategy đã có.
 
 ## Cấu Trúc Gọn
 
@@ -27,6 +43,18 @@ ReinforcementTrading_Part_1/
 
 Các script cũ BTC/Gold, CSV cũ, chart cũ và folder `training_runs/` đã được dọn để tránh nhầm lẫn. Hai model 10M cũ vẫn được giữ ở `artifacts/legacy_models/` để không mất công train trước đây. Pipeline mới không cần tách BTC/Gold nữa: `BTCUSDT`, `PAXGUSDT`, `NEARUSDT`, `ETHUSDT`, `SOLUSDT`... đều chạy qua `trading_bot/`.
 
+## Trạng Thái Hiện Tại
+
+- Branch chính đang dùng: `main`.
+- Repo remote: `https://github.com/Nhat-School/TradingPPO-ReinformentLearning.git`.
+- UI đã chạy được ở `localhost:8501` khi dùng `./run_ui.sh`.
+- UI đã bỏ auto-refresh để tránh đang xem metrics bị nhảy lên đầu trang. Muốn cập nhật progress thì bấm `Refresh progress`.
+- UI hiện progress training gồm stage, current step, target steps, remaining steps, log tail và artifact path.
+- UI có nút `Back to main screen` sau khi train xong.
+- UI có `Start date` và `End date`; backend chặn ngày trước `2017-07-01`.
+- Sau train, UI hiển thị riêng `Train return`, `Train max DD`, `Test return`, `Test max DD`.
+- Hiện có thể tồn tại artifact chưa được track Git như `artifacts/models/BTCUSDT/1d/` hoặc `artifacts/models/ETHUSDT/`. Đừng xóa nếu chưa hỏi user.
+
 ## Vai Trò Từng File Chính
 
 - `streamlit_app.py`: entrypoint tương thích cũ; cách chạy chính hiện nay là `trading_bot/ui/app.py`.
@@ -41,6 +69,37 @@ Các script cũ BTC/Gold, CSV cũ, chart cũ và folder `training_runs/` đã đ
 - `trading_bot/evaluation.py`: baseline, walk-forward report, stress test, chart equity/drawdown/baseline.
 - `trading_bot/live.py`: latest signal từ artifact đã lưu, dùng đúng scaler/config lúc train.
 - `trading_bot/ui/app.py`: dashboard, form train, tab latest signal, tab artifact.
+
+## Luồng Hoạt Động Chính
+
+```text
+UI/CLI input
+  -> trading_bot/data.py fetch Binance klines
+  -> trading_bot/features.py build feature set
+  -> trading_bot/trainer.py split 70/15/15 theo thời gian
+  -> train PPO với validation checkpoint
+  -> evaluate train/test
+  -> compare baseline/stress/walk-forward/PBO
+  -> promote candidate nếu tốt hơn best hiện tại
+  -> save best artifact
+  -> trading_bot/live.py đọc best artifact để tạo latest signal
+```
+
+Split mặc định:
+
+```text
+70% train
+15% validation để chọn checkpoint
+15% test/OOS để báo cáo kết quả cuối
+```
+
+Selection rule cho best model:
+
+```text
+score = positive_return_bonus + return_pct + 2 * sharpe - 0.25 * abs(max_drawdown_pct)
+```
+
+Ý nghĩa: ưu tiên model có OOS return dương, Sharpe tốt và drawdown thấp. Không chọn model chỉ vì train đẹp.
 
 ## Cài Đặt
 
@@ -100,6 +159,13 @@ Dashboard hỗ trợ:
 - Mỗi symbol/timeframe chỉ giữ một folder `best`. Các folder run tạm được xóa sau khi promote/so sánh để tránh nhiều folder BTC 4h gây nhầm.
 - Sau màn hình kết quả có nút `Back to main screen` để ẩn kết quả train và quay lại dashboard chính.
 
+Điều cần nhớ khi sửa UI:
+
+- Không đưa lại quá nhiều setting rườm rà lên màn hình chính.
+- Không dùng auto-refresh liên tục vì user đã phản ánh bị nhảy lên đầu trang.
+- Nếu thêm tùy chọn mới, cân nhắc để CLI hỗ trợ trước, UI chỉ giữ các trường hay dùng.
+- Khi bấm `Run`, phải có phản hồi rõ ràng: job đã bắt đầu, đang fetch/train/evaluate/saving, số step hiện tại.
+
 Smoke test nên dùng:
 
 ```text
@@ -154,6 +220,18 @@ python -m trading_bot.cli train \
   --start-date 2020-01-01 \
   --end-date 2023-02-02
 ```
+
+Nếu muốn dùng lại kiểu cũ theo số ngày thay vì date range:
+
+```bash
+python -m trading_bot.cli train \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --timesteps 50000 \
+  --lookback-days 730
+```
+
+Ưu tiên hiện tại vẫn là `--start-date` và `--end-date` vì user muốn kiểm soát rõ khoảng train/test.
 
 Run BTC 2M:
 
@@ -220,6 +298,27 @@ artifacts/models/<SYMBOL>/<TIMEFRAME>/best/
 └── stress_test_comparison.png
 ```
 
+Ý nghĩa các file quan trọng:
+
+- `model.zip`: PPO model đã lưu.
+- `train_config.json`: symbol, timeframe, date range, feature columns, split rows, env settings.
+- `train_stats.npz`: mean/std fit trên train-only để tránh leakage.
+- `train_metrics.json`: return/drawdown/trades trên tập train.
+- `metrics.json` và `test_metrics.json`: metrics trên tập test/OOS.
+- `baseline_metrics.json`: Buy & Hold, MA crossover, RSI rule, random policy.
+- `stress_test_metrics.json`: metrics khi tăng transaction cost.
+- `walk_forward_metrics.json`: segment report theo thời gian.
+- `overfit_report.json`: cảnh báo kiểu PBO/ranking.
+- `selected_strategy.json`: PPO có thắng baseline OOS không.
+- `best_selection.json`: candidate có được promote thành best không.
+
+Quy tắc dọn artifact:
+
+- Trong mỗi `<SYMBOL>/<TIMEFRAME>/`, chỉ nên giữ folder `best`.
+- Folder run tạm được xóa sau khi promote/compare.
+- Không tự xóa `artifacts/legacy_models/` vì chứa model cũ train lâu.
+- Không xóa artifact chưa rõ user có cần không, nhất là model BTC/ETH mới train.
+
 ## Chống Overfit
 
 Bản nâng cấp ghi lại:
@@ -264,6 +363,57 @@ Random policy: -3.87%
 ```
 
 Kết luận trung thực: model mới đã sửa vấn đề exposure/risk của bản cũ và có đủ kiểm định chống overfit, nhưng PPO hiện chưa thắng baseline đơn giản trên OOS window này. Đây là bằng chứng nghiên cứu tốt hơn, không phải claim SOTA.
+
+## Báo Cáo Bổ Sung
+
+Tài liệu bổ sung nằm ở:
+
+```text
+reports/TTCS_MOCK2_BoSung.docx
+```
+
+Vai trò của DOCX:
+
+- Bổ sung cho PDF gốc, không thay thế PDF.
+- Giải thích survey trading bot/RL trading, baseline, SOTA liên quan.
+- Giải thích các kỹ thuật chống overfitting đã áp dụng.
+- Mô tả các nâng cấp mục 11: UI train, API-first, multi-asset, artifact best model, latest signal, baseline/stress/walk-forward.
+- Không cần nhồi hướng dẫn chạy quá chi tiết vào DOCX; hướng dẫn chạy nằm ở README này.
+
+Nếu sửa DOCX, nên giữ tinh thần: báo cáo bổ sung, không viết lại toàn bộ báo cáo cũ.
+
+## Git Và Backup
+
+User muốn push thẳng lên `main` khi cần backup, không thích tạo nhiều branch.
+
+Quy tắc nên theo:
+
+- Trước khi commit, chạy `git status --short`.
+- Chỉ stage file mình sửa hoặc file user yêu cầu đưa lên Git.
+- Không stage `.venv`, `__pycache__`, `artifacts/jobs`, cache hoặc file quá nặng không cần thiết.
+- Với model quan trọng, có thể track nếu Git/GitHub cho phép dung lượng. Nếu quá nặng, cần Git LFS hoặc backup ngoài.
+- Không dùng lệnh destructive như `git reset --hard` hoặc `git checkout --` trừ khi user yêu cầu rõ.
+- Không xóa artifact/model cũ để "dọn" nếu chưa chắc chắn.
+
+Lệnh thường dùng:
+
+```bash
+git status --short
+git add <files>
+git commit -m "message"
+git push origin main
+```
+
+## Checklist Khi AI Khác Tiếp Tục Làm
+
+- Đọc README này trước.
+- Chạy từ `ReinforcementTrading_Part_1/`, không chạy từ root nếu lệnh cần package `trading_bot`.
+- Nếu UI lỗi trắng/đen, kiểm tra terminal log và chạy `python -m streamlit run trading_bot/ui/app.py`.
+- Nếu sửa train logic, test bằng `compileall`, bad date check và smoke train nhỏ.
+- Nếu sửa UI, test bằng Streamlit AppTest hoặc mở `localhost:8501`.
+- Nếu sửa live signal, kiểm tra `python -m trading_bot.cli signal --symbol BTCUSDT`.
+- Khi train thật, đừng hứa return dương tuyệt đối; hệ thống chỉ đo và giảm overfit, không đảm bảo thắng thị trường.
+- Nếu PPO không thắng baseline, ghi trung thực vào báo cáo/thảo luận thay vì che giấu.
 
 ## Lỗi Thường Gặp
 
