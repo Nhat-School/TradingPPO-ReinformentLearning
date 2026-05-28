@@ -16,7 +16,7 @@ ReinforcementTrading_Part_1/
 │   ├── evaluation.py                    # Metrics, baseline, stress test, chart
 │   ├── live.py                          # Latest signal từ model đã lưu
 │   └── ui/app.py                        # Dashboard Streamlit
-├── artifacts/models/<SYMBOL>/<TF>/<RUN>/ # Model, metrics, chart theo từng tài sản
+├── artifacts/models/<SYMBOL>/<TF>/best/ # Best model, metrics, chart theo từng tài sản/timeframe
 ├── artifacts/legacy_models/              # Model 10M cũ được giữ lại để backup
 ├── reports/TTCS_MOCK2_BoSung.docx       # DOCX bổ sung báo cáo
 ├── streamlit_app.py                     # Entry UI quen thuộc
@@ -29,8 +29,8 @@ Các script cũ BTC/Gold, CSV cũ, chart cũ và folder `training_runs/` đã đ
 
 ## Vai Trò Từng File Chính
 
-- `streamlit_app.py`: entrypoint UI, chỉ import dashboard trong `trading_bot/ui/app.py`.
-- `run_ui.sh`: chọn Python 3.9-3.12, tạo `.venv`, cài dependency, chạy Streamlit headless.
+- `streamlit_app.py`: entrypoint tương thích cũ; cách chạy chính hiện nay là `trading_bot/ui/app.py`.
+- `run_ui.sh`: chọn Python 3.9-3.12, tạo `.venv`, cài dependency, chạy trực tiếp `trading_bot/ui/app.py`.
 - `requirements.txt`: dependency tối thiểu cho pipeline mới; không còn cần `pandas_ta_classic`.
 - `training_runner.py`: wrapper tương thích nếu code cũ import `run_training`; logic thật nằm trong `trading_bot/trainer.py`.
 - `trading_bot/data.py`: gọi Binance API `exchangeInfo` và `klines`.
@@ -77,7 +77,7 @@ Cách thủ công:
 cd ReinforcementTrading_Part_1
 source .venv/bin/activate
 export PYTHONPATH="$PWD"
-python -m streamlit run streamlit_app.py
+python -m streamlit run trading_bot/ui/app.py
 ```
 
 Lưu ý lỗi bạn gặp trước đó: lệnh đúng là `streamlit`, không phải `treamlit`.
@@ -94,6 +94,9 @@ Dashboard hỗ trợ:
 - Khi bấm `Run`, UI khởi động training dưới dạng background job, hiện stage, progress bar, current step, target steps, remaining steps, artifact folder và tail log. Vì vậy trình duyệt không còn bị màn hình đen/kẹt khi train lâu.
 - Dashboard không fetch Binance `exchangeInfo` lúc mở trang nữa để tránh trắng màn hình khi API/mạng chậm; dữ liệu train vẫn fetch trực tiếp từ Binance sau khi bấm `Run`.
 - Sau train sẽ hiện metrics, selected strategy, và hình: equity curve, drawdown curve, baseline comparison, stress-test comparison.
+- Sau khi train xong, hệ thống so sánh candidate với model hiện tại bằng score: `positive_return_bonus + return_pct + 2*sharpe - 0.25*abs(max_drawdown_pct)`. Nếu candidate tốt hơn thì promote vào `artifacts/models/<SYMBOL>/<TIMEFRAME>/best`; nếu không tốt hơn thì giữ best cũ.
+- Mỗi symbol/timeframe chỉ giữ một folder `best`. Các folder run tạm được xóa sau khi promote/so sánh để tránh nhiều folder BTC 4h gây nhầm.
+- Sau màn hình kết quả có nút `Back to main screen` để ẩn kết quả train và quay lại dashboard chính.
 
 Smoke test nên dùng:
 
@@ -132,7 +135,7 @@ Optuna trials: 1
 
 Mình đã chạy kiểm thử rút gọn cùng cấu hình này với `100,000` timesteps để xác nhận pipeline không lỗi. Kết quả PPO OOS hiện tại là `0.00%` vì model chọn không vào lệnh; hệ thống vì vậy đánh dấu cảnh báo anti-overfit và chọn baseline RSI `+19.13%` trong `selected_strategy.json`. Muốn kiểm tra PPO lâu hơn, giữ nguyên UI và bấm `Run` với `1,000,000` timesteps.
 
-Progress job tạm thời được ghi vào `artifacts/jobs/` và đã được ignore khỏi Git. Model/metrics/chart thật vẫn nằm trong `artifacts/models/`.
+Progress job tạm thời được ghi vào `artifacts/jobs/` và đã được ignore khỏi Git. Model/metrics/chart thật được chuẩn hóa vào `artifacts/models/<SYMBOL>/<TIMEFRAME>/best/`.
 
 ## Train Từ CLI
 
@@ -172,21 +175,21 @@ python -m trading_bot.cli train \
 
 ## Latest Signal
 
-Lệnh này đọc artifact mới nhất, fetch nến Binance mới và in khuyến nghị. Nó không đặt lệnh thật.
+Lệnh này đọc best artifact, fetch nến Binance mới và in khuyến nghị. Nó không đặt lệnh thật. Nếu không truyền timeframe, hệ thống chọn best model tốt nhất của symbol theo score OOS; nếu truyền timeframe thì chọn `artifacts/models/<SYMBOL>/<TIMEFRAME>/best`.
 
 ```bash
 cd ReinforcementTrading_Part_1
 source .venv/bin/activate
 export PYTHONPATH="$PWD"
-python -m trading_bot.cli signal --symbol BTCUSDT --timeframe 1h
+python -m trading_bot.cli signal --symbol BTCUSDT
 ```
 
 ## Artifact
 
-Mỗi lần train lưu vào:
+Mỗi lần train tạo candidate tạm, sau đó chỉ giữ best model tại:
 
 ```text
-artifacts/models/<SYMBOL>/<TIMEFRAME>/<RUN_ID>/
+artifacts/models/<SYMBOL>/<TIMEFRAME>/best/
 ├── model.zip
 ├── train_config.json
 ├── train_stats.npz
@@ -196,6 +199,7 @@ artifacts/models/<SYMBOL>/<TIMEFRAME>/<RUN_ID>/
 ├── stress_test_metrics.json
 ├── overfit_report.json
 ├── selected_strategy.json
+├── best_selection.json
 ├── equity_curve.png
 ├── drawdown_curve.png
 ├── baseline_comparison.png
@@ -215,14 +219,14 @@ Bản nâng cấp ghi lại:
 - Train-only normalization trong `train_stats.npz`.
 - Risk-normalized sizing: SL/TP theo basis points, mỗi lệnh rủi ro tối đa `1%` equity, giới hạn notional và không cho equity âm.
 - `selected_strategy.json`: nếu PPO không thắng baseline OOS, hệ thống ghi cảnh báo và chọn candidate OOS tốt nhất để tránh overfit theo cảm tính.
-- UI dùng form submit để đảm bảo đổi timeframe/timesteps/policy/Optuna rồi bấm `Run` sẽ truyền đúng config vào trainer.
+- UI dùng nút `Run` đơn giản; live signal luôn ưu tiên best model thay vì folder mới nhất.
 
 ## Kết Quả BTC 2M Hiện Tại
 
 Artifact chính:
 
 ```text
-artifacts/models/BTCUSDT/1h/btc_2m_risk_normalized_20260527/
+artifacts/models/BTCUSDT/1h/best/
 ```
 
 PPO test-only:

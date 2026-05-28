@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -308,6 +309,14 @@ def show_active_job(job: dict):
         st.session_state.last_run_symbol = job["symbol"]
         st.session_state.active_job = None
         st.success("Training completed.")
+        if st.button("Back to main screen", key="back_to_main_after_train"):
+            job_dir = Path(job.get("job_dir", ""))
+            if job_dir.exists():
+                shutil.rmtree(job_dir)
+            st.session_state.last_run_dir = None
+            st.session_state.last_run_symbol = None
+            st.session_state.active_job = None
+            st.rerun()
         show_artifact(run_dir)
     elif not running:
         st.session_state.active_job = None
@@ -319,7 +328,7 @@ symbols = available_symbols()
 watchlist = [item for item in WATCHLIST if item in symbols]
 
 st.title("Trading Bot Trainer")
-st.caption("Chọn tài sản, timeframe, số bước train rồi bấm Run. Dữ liệu train lấy trực tiếp từ Binance API.")
+st.caption("Chọn tài sản, timeframe, số bước train rồi bấm Run. Dữ liệu train lấy trực tiếp từ Binance API. Live signal luôn dùng best model.")
 
 active_job = st.session_state.active_job or discover_latest_job()
 if active_job:
@@ -385,15 +394,16 @@ with train_tab:
         st.rerun()
 
 with signal_tab:
-    st.subheader("Latest Signal")
+    st.subheader("Latest Signal From Best Model")
     signal_symbol = st.selectbox("Signal symbol", symbols, index=symbols.index("BTCUSDT") if "BTCUSDT" in symbols else 0)
-    signal_timeframe = st.selectbox("Signal timeframe", ["latest saved", "15m", "1h", "4h", "1d"], index=0)
+    signal_timeframe = st.selectbox("Signal timeframe", ["best overall", "15m", "1h", "4h", "1d"], index=0)
     if st.button("Get latest signal"):
         try:
-            payload = latest_signal(signal_symbol, None if signal_timeframe == "latest saved" else signal_timeframe)
+            payload = latest_signal(signal_symbol, None if signal_timeframe == "best overall" else signal_timeframe)
         except Exception as exc:
             st.error(str(exc))
         else:
+            st.info(f"Using best model: {payload.get('run_dir')}")
             st.json(payload)
 
 with artifacts_tab:

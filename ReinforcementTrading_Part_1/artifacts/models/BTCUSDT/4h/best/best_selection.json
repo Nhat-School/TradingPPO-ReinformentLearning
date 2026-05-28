@@ -1,0 +1,7 @@
+{
+  "best_dir": "/Users/nhaterik/TradingBot/ReinforcementTrading_Part_1/artifacts/models/BTCUSDT/4h/best",
+  "current_best_score": 0.0,
+  "promoted": true,
+  "selection_rule": "score = positive_return_bonus + return_pct + 2*sharpe - 0.25*abs(max_drawdown_pct)",
+  "message": "Current canonical best model for this symbol/timeframe."
+}

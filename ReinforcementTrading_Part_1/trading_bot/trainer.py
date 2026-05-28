@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -51,6 +52,8 @@ def fit_stats(train_df, feature_cols):
 
 def make_run_dir(config: TrainingConfig) -> Path:
     run_id = config.run_name or datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    if run_id == "best":
+        run_id = f"candidate_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     run_dir = Path(config.artifact_root) / config.symbol.upper() / config.timeframe / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
     return run_dir
@@ -274,16 +277,73 @@ def run_training(config: TrainingConfig, progress_path: str | Path | None = None
         f"{symbol} Stress Test",
         {"normal_cost": ppo_curve, "cost_x2": stress_curve},
     )
-    write_progress(progress_path, "completed", 1.0, "Training completed. Artifact is ready.", run_dir)
+    best_dir, best_report = promote_best_model(run_dir, ppo_metrics)
+    write_json(best_dir / "best_selection.json", best_report)
+    write_progress(progress_path, "completed", 1.0, "Training completed. Best artifact is ready.", best_dir)
 
     return {
-        "run_dir": str(run_dir),
+        "run_dir": str(best_dir),
         "metrics": ppo_metrics,
         "baseline_metrics": {name: item["metrics"] for name, item in base.items()},
         "stress_test_metrics": {"cost_x2": stress_metrics},
         "selected_strategy": selected_strategy,
         "config": full_config,
+        "best_selection": best_report,
     }
+
+
+def model_score(metrics: dict[str, Any]) -> float:
+    return_pct = float(metrics.get("return_pct", -1e9))
+    drawdown = abs(float(metrics.get("max_drawdown_pct", 1e9)))
+    sharpe = float(metrics.get("sharpe_simple", 0.0))
+    # Prefer positive OOS return, then penalize fragile drawdown.
+    positive_bonus = 100.0 if return_pct > 0 else 0.0
+    return positive_bonus + return_pct + (2.0 * sharpe) - (0.25 * drawdown)
+
+
+def read_metrics(run_dir: Path) -> dict[str, Any]:
+    path = run_dir / "metrics.json"
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def promote_best_model(run_dir: Path, metrics: dict[str, Any]) -> tuple[Path, dict[str, Any]]:
+    best_dir = run_dir.parent / "best"
+    candidate_score = model_score(metrics)
+    current_metrics = read_metrics(best_dir)
+    current_score = model_score(current_metrics) if current_metrics else None
+    promoted = current_score is None or candidate_score >= current_score
+
+    report = {
+        "candidate_run": str(run_dir),
+        "best_dir": str(best_dir),
+        "candidate_score": candidate_score,
+        "previous_best_score": current_score,
+        "promoted": promoted,
+        "selection_rule": "score = positive_return_bonus + return_pct + 2*sharpe - 0.25*abs(max_drawdown_pct)",
+    }
+    if promoted:
+        if best_dir.exists():
+            shutil.rmtree(best_dir)
+        shutil.copytree(run_dir, best_dir)
+        report["message"] = "Candidate promoted to best model."
+    else:
+        report["message"] = "Candidate did not beat current best model; keeping existing best."
+
+    if run_dir != best_dir and run_dir.exists():
+        shutil.rmtree(run_dir)
+    cleanup_non_best_runs(best_dir.parent)
+    return best_dir, report
+
+
+def cleanup_non_best_runs(timeframe_dir: Path):
+    for child in timeframe_dir.iterdir():
+        if child.is_dir() and child.name != "best":
+            shutil.rmtree(child)
 
 
 def select_strategy(candidate_metrics: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -324,15 +384,17 @@ def list_artifacts(symbol: str | None = None, artifact_root: Path = ARTIFACT_ROO
     return sorted(runs, key=_artifact_sort_key, reverse=True)
 
 
-def _artifact_sort_key(run_dir: Path) -> tuple[int, float]:
+def _artifact_sort_key(run_dir: Path) -> tuple[float, float, int, float]:
     config_path = run_dir / "train_config.json"
     timesteps = 0
+    score = model_score(read_metrics(run_dir))
     if config_path.exists():
         try:
             timesteps = int(json.loads(config_path.read_text(encoding="utf-8")).get("total_timesteps", 0))
         except Exception:
             timesteps = 0
-    return timesteps, run_dir.stat().st_mtime
+    best_bonus = 1_000_000 if run_dir.name == "best" else 0
+    return best_bonus, score, timesteps, run_dir.stat().st_mtime
 
 
 def latest_artifact(symbol: str, timeframe: str | None = None) -> Path | None:
