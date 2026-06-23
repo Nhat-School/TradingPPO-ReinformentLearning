@@ -1,0 +1,9 @@
+{
+  "candidate_run": "/Users/nhaterik/TradingBot/ReinforcementTrading_Part_1/artifacts/models/ETHUSDT/1h/ethusdt_1h_20260528_004726",
+  "best_dir": "/Users/nhaterik/TradingBot/ReinforcementTrading_Part_1/artifacts/models/ETHUSDT/1h/best",
+  "candidate_score": -52.4099469067542,
+  "previous_best_score": null,
+  "promoted": true,
+  "selection_rule": "score = positive_return_bonus + return_pct + 2*sharpe - 0.25*abs(max_drawdown_pct)",
+  "message": "Candidate promoted to best model."
+}

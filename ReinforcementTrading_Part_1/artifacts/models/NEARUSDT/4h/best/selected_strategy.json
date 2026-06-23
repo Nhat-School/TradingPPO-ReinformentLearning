@@ -1,0 +1,15 @@
+{
+  "selected": "ppo",
+  "selected_return_pct": 0.0,
+  "ppo_return_pct": 0.0,
+  "ppo_is_selected": true,
+  "positive_return_available": false,
+  "note": "PPO selected by OOS return.",
+  "ranked_candidates": [
+    "ppo",
+    "random_policy",
+    "rsi_rule",
+    "ma_crossover",
+    "buy_hold"
+  ]
+}

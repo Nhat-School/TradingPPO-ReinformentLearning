@@ -405,12 +405,12 @@ with train_tab:
             key="train_timesteps",
         )
     with col_b:
-        policy_type = st.selectbox("Model", ["cnn1d", "mlp"], index=0, key="train_policy_type")
+        policy_type = st.selectbox("Model", ["cnn1d", "mlp", "recurrent_lstm"], index=0, key="train_policy_type")
     lookback_days = 730
     hpo_trials = 0
     st.caption(
         "Dữ liệu lấy theo khoảng ngày đã chọn. Split theo thời gian: 70% train, "
-        "15% validation chọn checkpoint, 15% test OOS. UI sẽ hiện return/drawdown cho train và test."
+        "30% test OOS. UI sẽ hiện return/drawdown và chart so sánh cho train và test."
     )
     submitted = st.button("Run", type="primary", key="run_training_button")
 

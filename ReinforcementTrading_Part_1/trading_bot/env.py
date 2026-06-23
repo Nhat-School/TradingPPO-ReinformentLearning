@@ -19,7 +19,6 @@ class MultiAssetTradingEnv(gym.Env):
         window_size: int,
         sl_options: tuple[int, ...],
         tp_options: tuple[int, ...],
-        price_distance_mode: str = "bps",
         pip_value: float = 1.0,
         lot_size: float = 1.0,
         spread_pips: float = 2.0,
@@ -40,7 +39,6 @@ class MultiAssetTradingEnv(gym.Env):
         hold_reward_weight: float = 0.03,
         time_penalty_pips: float = 0.0,
         drawdown_penalty_weight: float = 25.0,
-        sharpe_window: int = 64,
     ):
         super().__init__()
         self.df = df.reset_index(drop=True)
@@ -48,7 +46,6 @@ class MultiAssetTradingEnv(gym.Env):
         self.window_size = int(window_size)
         self.sl_options = tuple(sl_options)
         self.tp_options = tuple(tp_options)
-        self.price_distance_mode = price_distance_mode
         self.pip_value = float(pip_value)
         self.lot_size = float(lot_size)
         self.spread_pips = float(spread_pips)
@@ -69,7 +66,6 @@ class MultiAssetTradingEnv(gym.Env):
         self.hold_reward_weight = float(hold_reward_weight)
         self.time_penalty_pips = float(time_penalty_pips)
         self.drawdown_penalty_weight = float(drawdown_penalty_weight)
-        self.sharpe_window = int(sharpe_window)
 
         if len(self.df) <= self.window_size + 2:
             raise ValueError("Dataframe is too short for the requested window.")
@@ -107,7 +103,6 @@ class MultiAssetTradingEnv(gym.Env):
         self.equity_usd = self.initial_equity_usd
         self.equity_peak_usd = self.initial_equity_usd
         self.equity_curve = []
-        self.reward_history = deque(maxlen=max(8, self.sharpe_window))
         self.last_trade_info = None
 
     def reset(self, seed=None, options=None):
@@ -137,16 +132,14 @@ class MultiAssetTradingEnv(gym.Env):
             obs = ((obs - self.feature_mean.reshape(1, -1)) / std.reshape(1, -1)).astype(np.float32)
         return obs
 
-    def _price_distance(self, value: float, reference_price: float):
-        if self.price_distance_mode == "bps":
-            return max(reference_price * float(value) / 10_000.0, 1e-9)
+    def _price_distance(self, value: float):
         return max(float(value) * self.pip_value, 1e-9)
 
-    def _slippage_distance(self, reference_price: float):
+    def _slippage_distance(self):
         if self.max_slippage_pips <= 0:
             return 0.0
         sampled = float(self.np_random.uniform(0.0, self.max_slippage_pips))
-        return self._price_distance(sampled, reference_price)
+        return self._price_distance(sampled)
 
     def _unrealized_pips(self):
         if self.position == 0 or self.entry_price is None:
@@ -168,18 +161,18 @@ class MultiAssetTradingEnv(gym.Env):
 
     def _open(self, direction, sl_pips, tp_pips):
         close = float(self.df.loc[self.current_step, "Close"])
-        slip = self._slippage_distance(close)
+        slip = self._slippage_distance()
         if direction == 1:
             entry = close + slip
-            sl_distance = self._price_distance(sl_pips, entry)
-            tp_distance = self._price_distance(tp_pips, entry)
+            sl_distance = self._price_distance(sl_pips)
+            tp_distance = self._price_distance(tp_pips)
             self.sl_price = entry - sl_distance
             self.tp_price = entry + tp_distance
             self.position = 1
         else:
             entry = close - slip
-            sl_distance = self._price_distance(sl_pips, entry)
-            tp_distance = self._price_distance(tp_pips, entry)
+            sl_distance = self._price_distance(sl_pips)
+            tp_distance = self._price_distance(tp_pips)
             self.sl_price = entry + sl_distance
             self.tp_price = entry - tp_distance
             self.position = -1
@@ -190,7 +183,7 @@ class MultiAssetTradingEnv(gym.Env):
         self.entry_price = entry
         self.time_in_trade = 0
         self.prev_unrealized_pnl_usd = 0.0
-        open_cost_usd = self._price_distance(self.open_penalty_pips, entry) * self.position_size_units
+        open_cost_usd = self._price_distance(self.open_penalty_pips) * self.position_size_units
         self.last_trade_info = {
             "event": "OPEN",
             "step": self.current_step,
@@ -203,8 +196,8 @@ class MultiAssetTradingEnv(gym.Env):
     def _close(self, reason, exit_price):
         raw = (exit_price - self.entry_price) / self.pip_value if self.position == 1 else (self.entry_price - exit_price) / self.pip_value
         net_price_distance = raw * self.pip_value
-        net_price_distance -= self._price_distance(self.spread_pips, self.entry_price)
-        net_price_distance -= self._price_distance(self.commission_pips, self.entry_price)
+        net_price_distance -= self._price_distance(self.spread_pips)
+        net_price_distance -= self._price_distance(self.commission_pips)
         net = net_price_distance / self.pip_value
         pnl_usd = net_price_distance * self.position_size_units
         self.equity_usd = max(0.0, self.equity_usd + pnl_usd)
@@ -259,10 +252,6 @@ class MultiAssetTradingEnv(gym.Env):
             self.equity_peak_usd = max(self.equity_peak_usd, self.equity_usd)
             drawdown = max(0.0, (self.equity_peak_usd - self.equity_usd) / max(self.equity_peak_usd, 1e-9))
             reward -= self.drawdown_penalty_weight * drawdown
-        elif self.reward_mode == "sharpe_proxy":
-            recent_std = np.std(self.reward_history) if len(self.reward_history) > 3 else 1.0
-            reward = reward / max(float(recent_std), 1.0)
-        self.reward_history.append(float(reward))
         return reward
 
     def step(self, action):
@@ -275,7 +264,7 @@ class MultiAssetTradingEnv(gym.Env):
 
         if act_type == "CLOSE" and self.position != 0:
             close = float(self.df.loc[self.current_step, "Close"])
-            slip = self._slippage_distance(close)
+            slip = self._slippage_distance()
             exit_price = close - slip if self.position == 1 else close + slip
             reward += self._shape_reward(self._close("MANUAL_CLOSE", exit_price))
         elif act_type == "OPEN" and self.position == 0:

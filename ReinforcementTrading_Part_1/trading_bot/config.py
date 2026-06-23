@@ -48,7 +48,6 @@ class EnvSettings:
     window_size: int = 60
     sl_options: tuple[int, ...] = (25, 50, 100)
     tp_options: tuple[int, ...] = (50, 100, 200)
-    price_distance_mode: str = "bps"
     pip_value: float = 1.0
     lot_size: float = 1.0
     spread_pips: float = 2.0
@@ -63,7 +62,6 @@ class EnvSettings:
     hold_reward_weight: float = 0.10
     time_penalty_pips: float = 0.0
     drawdown_penalty_weight: float = 25.0
-    sharpe_window: int = 64
 
 
 def default_env_settings(symbol: str, timeframe: str) -> EnvSettings:

@@ -45,7 +45,6 @@ def latest_signal(symbol: str, timeframe: str | None = None) -> dict:
         window_size=settings.window_size,
         sl_options=settings.sl_options,
         tp_options=settings.tp_options,
-        price_distance_mode=settings.price_distance_mode,
         pip_value=settings.pip_value,
         lot_size=settings.lot_size,
         spread_pips=settings.spread_pips,
@@ -86,8 +85,8 @@ def latest_signal(symbol: str, timeframe: str | None = None) -> dict:
         direction = "LONG" if action_tuple[1] == 1 else "SHORT"
         sl = float(action_tuple[2])
         tp = float(action_tuple[3])
-        sl_distance = env._price_distance(sl, current_price)
-        tp_distance = env._price_distance(tp, current_price)
+        sl_distance = env._price_distance(sl)
+        tp_distance = env._price_distance(tp)
         result.update(
             {
                 "direction": direction,
@@ -95,7 +94,6 @@ def latest_signal(symbol: str, timeframe: str | None = None) -> dict:
                 "take_profit": current_price + tp_distance if direction == "LONG" else current_price - tp_distance,
                 "sl_distance": sl,
                 "tp_distance": tp,
-                "distance_mode": settings.price_distance_mode,
             }
         )
     return result

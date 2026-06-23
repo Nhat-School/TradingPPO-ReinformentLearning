@@ -1,0 +1,15 @@
+{
+  "selected": "rsi_rule",
+  "selected_return_pct": 10.818374765814154,
+  "ppo_return_pct": -17.523007132983114,
+  "ppo_is_selected": false,
+  "positive_return_available": true,
+  "note": "PPO did not beat the best OOS baseline; use this as an anti-overfit warning.",
+  "ranked_candidates": [
+    "rsi_rule",
+    "buy_hold",
+    "random_policy",
+    "ma_crossover",
+    "ppo"
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "buy_hold": {
+    "initial_equity": 10000.0,
+    "final_equity": 4354.780733285406,
+    "return_pct": -56.45219266714594,
+    "max_drawdown_pct": -80.87305259910535,
+    "sharpe_simple": -0.5480051529111095,
+    "num_points": 24171
+  },
+  "ma_crossover": {
+    "initial_equity": 10000.0,
+    "final_equity": 7177.7777011331,
+    "return_pct": -28.222222988669,
+    "max_drawdown_pct": -61.266086209425694,
+    "sharpe_simple": -0.22831749836713117,
+    "num_points": 24171
+  },
+  "rsi_rule": {
+    "initial_equity": 10000.0,
+    "final_equity": 3907.0527402860757,
+    "return_pct": -60.929472597139245,
+    "max_drawdown_pct": -74.14642493826551,
+    "sharpe_simple": -1.125363466781742,
+    "num_points": 24171
+  },
+  "random_policy": {
+    "initial_equity": 10000.0,
+    "final_equity": 12207.377011786775,
+    "return_pct": 22.073770117867753,
+    "max_drawdown_pct": -46.185651295436216,
+    "sharpe_simple": 0.7767235236669952,
+    "num_points": 24171
+  }
+}

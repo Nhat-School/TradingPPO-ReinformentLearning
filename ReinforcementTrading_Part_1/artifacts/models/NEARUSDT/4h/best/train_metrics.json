@@ -1,0 +1,11 @@
+{
+  "initial_equity": 10000.0,
+  "final_equity": 9737.070736902699,
+  "return_pct": -2.6292926309730125,
+  "max_drawdown_pct": -3.8812802831485027,
+  "sharpe_simple": -0.8262578730773339,
+  "num_points": 3213,
+  "total_trades": 19,
+  "winning_trades": 4,
+  "win_rate_pct": 21.05263157894737
+}

@@ -1,16 +1,23 @@
 {
   "symbol": "BTCUSDT",
   "timeframe": "4h",
-  "total_timesteps": 100000,
+  "total_timesteps": 5000000,
   "lookback_days": 730,
+  "start_date": "2020-01-01",
+  "end_date": "2023-02-02",
   "reward_mode": "pnl_drawdown",
   "policy_type": "cnn1d",
-  "hpo_trials": 1,
+  "hpo_trials": 0,
   "seed": 42,
-  "run_name": "btc_4h_100k_cnn1d_optuna1",
+  "run_name": "btcusdt_4h_20260529_091138",
   "use_cache": false,
   "artifact_root": "/Users/nhaterik/TradingBot/ReinforcementTrading_Part_1/artifacts/models",
   "source": "Binance API",
+  "requested_start": "2020-01-01",
+  "requested_end": "2023-02-02",
+  "actual_start": "2020-01-01 00:00:00",
+  "actual_end": "2023-02-02 00:00:00",
+  "split_rule": "70% train, 30% OOS test",
   "feature_columns": [
     "rsi_14",
     "atr_pct",
@@ -33,9 +40,8 @@
     "cvd_slope",
     "vwap_diff"
   ],
-  "train_rows": 3024,
-  "validation_rows": 648,
-  "test_rows": 649,
+  "train_rows": 4696,
+  "test_rows": 2013,
   "env_settings": {
     "window_size": 60,
     "sl_options": [
@@ -65,14 +71,5 @@
     "drawdown_penalty_weight": 25.0,
     "sharpe_window": 64
   },
-  "hpo_report": {
-    "best_params": {
-      "learning_rate": 6.531444894427041e-05,
-      "ent_coef": 0.0030436076742559135,
-      "n_steps": 4096,
-      "batch_size": 256
-    },
-    "best_value": -25.79368218774417,
-    "trials": 1
-  }
+  "hpo_report": {}
 }

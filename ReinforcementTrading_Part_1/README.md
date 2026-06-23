@@ -65,7 +65,7 @@ Các script cũ BTC/Gold, CSV cũ, chart cũ và folder `training_runs/` đã đ
 - `trading_bot/features.py`: tự tính RSI, ATR, MA, MACD, Bollinger width, StochRSI, MFI, volume/order-flow bằng pandas/numpy.
 - `trading_bot/env.py`: môi trường PPO chung, action `HOLD/CLOSE/OPEN`, SL/TP theo basis points, risk sizing theo equity.
 - `trading_bot/modeling.py`: tạo PPO `mlp`, `cnn1d`, hoặc `recurrent_lstm`.
-- `trading_bot/trainer.py`: fetch API, split train/validation/test, HPO Optuna, train PPO, chọn best validation checkpoint, evaluate OOS, lưu artifact.
+- `trading_bot/trainer.py`: fetch API, split 70% train/30% test, HPO Optuna nếu bật, train PPO, evaluate train/test, lưu artifact.
 - `trading_bot/evaluation.py`: baseline, walk-forward report, stress test, chart equity/drawdown/baseline.
 - `trading_bot/live.py`: latest signal từ artifact đã lưu, dùng đúng scaler/config lúc train.
 - `trading_bot/ui/app.py`: dashboard, form train, tab latest signal, tab artifact.
@@ -76,8 +76,8 @@ Các script cũ BTC/Gold, CSV cũ, chart cũ và folder `training_runs/` đã đ
 UI/CLI input
   -> trading_bot/data.py fetch Binance klines
   -> trading_bot/features.py build feature set
-  -> trading_bot/trainer.py split 70/15/15 theo thời gian
-  -> train PPO với validation checkpoint
+  -> trading_bot/trainer.py split 70/30 theo thời gian
+  -> train PPO trên 70% đầu
   -> evaluate train/test
   -> compare baseline/stress/walk-forward/PBO
   -> promote candidate nếu tốt hơn best hiện tại
@@ -89,8 +89,7 @@ Split mặc định:
 
 ```text
 70% train
-15% validation để chọn checkpoint
-15% test/OOS để báo cáo kết quả cuối
+30% test/OOS để báo cáo kết quả cuối
 ```
 
 Selection rule cho best model:
@@ -150,7 +149,7 @@ Dashboard hỗ trợ:
 - Tài sản đã có model sẽ có viền sáng và hiện return/drawdown mới nhất.
 - Chọn symbol, timeframe, khoảng ngày train, số timesteps, model rồi bấm `Run`.
 - UI đã bỏ các setting rườm rà khỏi màn hình chính. Dữ liệu lấy theo `Start date` và `End date` bạn chọn, reward chống overfit `pnl_drawdown`, seed `42`, và tắt Optuna trên UI để tiến trình đi thẳng vào timesteps train.
-- Hệ thống tự split theo thời gian: `70%` đầu để train, `15%` tiếp theo để chọn checkpoint validation, `15%` cuối để backtest test/OOS. Sau train UI hiện riêng `Train return`, `Train max DD`, `Test return`, `Test max DD`.
+- Hệ thống tự split theo thời gian: `70%` đầu để train, `30%` cuối để backtest test/OOS bằng model vừa train. Sau train UI hiện riêng `Train return`, `Train max DD`, `Test return`, `Test max DD` và các chart có cả đường train/test để đánh giá overfit.
 - UI chặn ngày trước `2017-07-01` vì Binance spot API không có dữ liệu phù hợp cho training trước mốc này. Nếu một coin niêm yết muộn hoặc khoảng ngày quá ngắn, backend sẽ báo lỗi rõ để bạn chọn lại khoảng ngày.
 - Khi bấm `Run`, UI khởi động training dưới dạng background job, hiện stage, progress bar, current step, target steps, remaining steps, artifact folder và tail log. Vì vậy trình duyệt không còn bị màn hình đen/kẹt khi train lâu.
 - Dashboard không fetch Binance `exchangeInfo` lúc mở trang nữa để tránh trắng màn hình khi API/mạng chậm; dữ liệu train vẫn fetch trực tiếp từ Binance sau khi bấm `Run`.
@@ -323,8 +322,8 @@ Quy tắc dọn artifact:
 
 Bản nâng cấp ghi lại:
 
-- Split train/validation/test theo thời gian, không shuffle.
-- Chọn best checkpoint theo validation, không lấy checkpoint cuối một cách mù quáng.
+- Split 70% train/30% test theo thời gian, không shuffle.
+- Backtest cả train và test bằng cùng model vừa train để so sánh overfit trực tiếp.
 - So với Buy & Hold, MA crossover, RSI rule và random policy.
 - Walk-forward-style segment metrics.
 - Stress test khi tăng spread/slippage/fee.

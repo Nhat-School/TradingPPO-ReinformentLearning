@@ -1,34 +1,34 @@
 {
   "window_1": {
     "initial_equity": 10000.0,
-    "final_equity": 10000.0,
-    "return_pct": 0.0,
+    "final_equity": 10197.999999999665,
+    "return_pct": 1.979999999996651,
     "max_drawdown_pct": 0.0,
-    "sharpe_simple": 0.0,
-    "num_points": 148
+    "sharpe_simple": 2.1205942369686084,
+    "num_points": 489
   },
   "window_2": {
-    "initial_equity": 10000.0,
-    "final_equity": 10000.0,
-    "return_pct": 0.0,
-    "max_drawdown_pct": 0.0,
-    "sharpe_simple": 0.0,
-    "num_points": 147
+    "initial_equity": 10197.999999999665,
+    "final_equity": 10381.254269938887,
+    "return_pct": 1.7969628352542344,
+    "max_drawdown_pct": -2.029596000008449,
+    "sharpe_simple": 0.9886844463913622,
+    "num_points": 488
   },
   "window_3": {
-    "initial_equity": 10000.0,
-    "final_equity": 10000.0,
+    "initial_equity": 10381.254269938887,
+    "final_equity": 10381.254269938887,
     "return_pct": 0.0,
     "max_drawdown_pct": 0.0,
     "sharpe_simple": 0.0,
-    "num_points": 147
+    "num_points": 488
   },
   "window_4": {
-    "initial_equity": 10000.0,
-    "final_equity": 10000.0,
+    "initial_equity": 10381.254269938887,
+    "final_equity": 10381.254269938887,
     "return_pct": 0.0,
     "max_drawdown_pct": 0.0,
     "sharpe_simple": 0.0,
-    "num_points": 147
+    "num_points": 488
   }
 }

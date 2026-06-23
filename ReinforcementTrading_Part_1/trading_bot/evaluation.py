@@ -163,6 +163,12 @@ def save_line_chart(path: Path, title: str, series: dict[str, list[float]], ylab
     plt.close()
 
 
-def save_drawdown_chart(path: Path, equity_curve: list[float]) -> None:
-    dd = drawdown_curve(equity_curve) * 100.0
-    save_line_chart(path, "Drawdown Curve", {"Drawdown %": dd.tolist()}, "Drawdown (%)")
+def save_drawdown_chart(path: Path, equity_curve: list[float] | dict[str, list[float]]) -> None:
+    if isinstance(equity_curve, dict):
+        series = {
+            name: (drawdown_curve(values) * 100.0).tolist()
+            for name, values in equity_curve.items()
+        }
+    else:
+        series = {"Drawdown %": (drawdown_curve(equity_curve) * 100.0).tolist()}
+    save_line_chart(path, "Drawdown Curve", series, "Drawdown (%)")

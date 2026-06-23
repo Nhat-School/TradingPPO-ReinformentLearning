@@ -20,7 +20,7 @@ def main():
     train.add_argument("--lookback-days", type=int, default=730)
     train.add_argument("--start-date", default=None)
     train.add_argument("--end-date", default=None)
-    train.add_argument("--reward-mode", default="pnl_drawdown", choices=["pnl", "pnl_drawdown", "sharpe_proxy"])
+    train.add_argument("--reward-mode", default="pnl_drawdown", choices=["pnl", "pnl_drawdown"])
     train.add_argument("--policy-type", default="mlp", choices=["mlp", "cnn1d", "recurrent_lstm"])
     train.add_argument("--hpo-trials", type=int, default=0)
     train.add_argument("--seed", type=int, default=42)

@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.callbacks import BaseCallback, CallbackList
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
@@ -49,18 +48,25 @@ def resolve_date_range(config: TrainingConfig) -> tuple[str, str]:
     return start, end
 
 
-def split_train_val_test(df, train_ratio=0.70, val_ratio=0.15):
+def split_train_test(df, train_ratio=0.70):
     train_end = int(len(df) * train_ratio)
-    val_end = int(len(df) * (train_ratio + val_ratio))
     train = df.iloc[:train_end].copy()
-    val = df.iloc[train_end:val_end].copy()
-    test = df.iloc[val_end:].copy()
-    if min(len(train), len(val), len(test)) < 100:
+    test = df.iloc[train_end:].copy()
+    if min(len(train), len(test)) < 100:
         raise ValueError(
-            "Not enough rows for train/validation/test split. "
+            "Not enough rows for 70/30 train/test split. "
             "Choose a wider date range or a smaller timeframe."
         )
-    return train, val, test
+    return train, test
+
+
+def split_hpo_train_val(df, train_ratio=0.80):
+    train_end = int(len(df) * train_ratio)
+    train = df.iloc[:train_end].copy()
+    val = df.iloc[train_end:].copy()
+    if min(len(train), len(val)) < 100:
+        return df.copy(), df.copy()
+    return train, val
 
 
 def fit_stats(train_df, feature_cols):
@@ -168,10 +174,6 @@ def make_env(df, kwargs, random_start: bool, episode_max_steps: int | None):
     return Monitor(env)
 
 
-def _eval_freq(total_timesteps: int) -> int:
-    return max(1_000, min(50_000, max(total_timesteps // 10, 1_000)))
-
-
 def run_hpo(config: TrainingConfig, train_df, val_df, env_params, run_dir: Path, progress_path: str | Path | None = None):
     if config.hpo_trials <= 0:
         return {}
@@ -230,46 +232,35 @@ def run_training(config: TrainingConfig, progress_path: str | Path | None = None
         )
     write_progress(progress_path, "features", 0.08, "Building technical, volume and order-flow features", run_dir)
     df, feature_cols = add_features(raw)
-    write_progress(progress_path, "split", 0.10, "Splitting train/validation/test by time order", run_dir)
-    train_df, val_df, test_df = split_train_val_test(df)
+    write_progress(progress_path, "split", 0.10, "Splitting 70% train and 30% test by time order", run_dir)
+    train_df, test_df = split_train_test(df)
     feature_mean, feature_std = fit_stats(train_df, feature_cols)
     settings = default_env_settings(symbol, config.timeframe)
     params = env_kwargs(settings, feature_cols, feature_mean, feature_std, config.reward_mode)
 
-    hpo_report = run_hpo(config, train_df, val_df, params, run_dir, progress_path)
+    hpo_train_df, hpo_val_df = split_hpo_train_val(train_df)
+    hpo_report = run_hpo(config, hpo_train_df, hpo_val_df, params, run_dir, progress_path)
     model_params = hpo_report.get("best_params", {}) if isinstance(hpo_report, dict) else {}
 
     train_env = DummyVecEnv([lambda: make_env(train_df, params, True, 2000)])
-    val_env = DummyVecEnv([lambda: make_env(val_df, params, False, None)])
     test_env = DummyVecEnv([lambda: make_env(test_df, params, False, None)])
 
     model = build_model(config.policy_type, train_env, run_dir, config.seed, config.total_timesteps, model_params)
-    callback = EvalCallback(
-        val_env,
-        best_model_save_path=str(run_dir / "best_model"),
-        log_path=str(run_dir / "logs"),
-        eval_freq=_eval_freq(config.total_timesteps),
-        deterministic=True,
-        render=False,
-    )
     progress_callback = FileProgressCallback(progress_path, config.total_timesteps, run_dir)
-    model.learn(total_timesteps=config.total_timesteps, callback=CallbackList([callback, progress_callback]))
+    model.learn(total_timesteps=config.total_timesteps, callback=CallbackList([progress_callback]))
 
     write_progress(
         progress_path,
         "evaluating",
         0.78,
-        "Loading best validation checkpoint and evaluating train/test sets",
+        "Evaluating the trained model on train and test sets",
         run_dir,
     )
-    best_path = run_dir / "best_model" / "best_model.zip"
-    model_cls = type(model)
-    best_model = model_cls.load(str(best_path), env=test_env) if best_path.exists() else model
-    best_model.save(str(run_dir / "model"))
+    model.save(str(run_dir / "model"))
 
     train_eval_env = DummyVecEnv([lambda: make_env(train_df, params, False, None)])
-    train_curve, train_metrics = evaluate_model(best_model, train_eval_env, config.timeframe)
-    ppo_curve, ppo_metrics = evaluate_model(best_model, test_env, config.timeframe)
+    train_curve, train_metrics = evaluate_model(model, train_eval_env, config.timeframe)
+    ppo_curve, ppo_metrics = evaluate_model(model, test_env, config.timeframe)
     write_progress(progress_path, "baselines", 0.84, "Running Buy & Hold, MA, RSI and random baselines", run_dir)
     base = baseline_curves(test_df, config.timeframe, seed=config.seed)
 
@@ -278,7 +269,7 @@ def run_training(config: TrainingConfig, progress_path: str | Path | None = None
     stress_params["spread_pips"] = float(stress_params["spread_pips"]) * 2.0
     stress_params["max_slippage_pips"] = float(stress_params["max_slippage_pips"]) * 2.0
     stress_env = DummyVecEnv([lambda: make_env(test_df, stress_params, False, None)])
-    stress_curve, stress_metrics = evaluate_model(best_model, stress_env, config.timeframe)
+    stress_curve, stress_metrics = evaluate_model(model, stress_env, config.timeframe)
 
     candidate_metrics = {"ppo": ppo_metrics}
     candidate_metrics.update({name: item["metrics"] for name, item in base.items()})
@@ -303,10 +294,9 @@ def run_training(config: TrainingConfig, progress_path: str | Path | None = None
             "requested_end": end,
             "actual_start": str(raw.index.min()),
             "actual_end": str(raw.index.max()),
-            "split_rule": "70% train, 15% validation checkpoint selection, 15% OOS test",
+            "split_rule": "70% train, 30% OOS test",
             "feature_columns": feature_cols,
             "train_rows": len(train_df),
-            "validation_rows": len(val_df),
             "test_rows": len(test_df),
             "env_settings": asdict(settings),
             "hpo_report": hpo_report,
@@ -314,18 +304,19 @@ def run_training(config: TrainingConfig, progress_path: str | Path | None = None
     )
     write_json(run_dir / "train_config.json", full_config)
 
-    save_line_chart(run_dir / "train_equity_curve.png", f"{symbol} PPO Train Equity Curve", {"Train PPO": train_curve})
-    save_line_chart(run_dir / "equity_curve.png", f"{symbol} PPO Test Equity Curve", {"Test PPO": ppo_curve})
-    save_drawdown_chart(run_dir / "drawdown_curve.png", ppo_curve)
+    train_test_curves = {"Train PPO": train_curve, "Test PPO": ppo_curve}
+    save_line_chart(run_dir / "train_equity_curve.png", f"{symbol} PPO Train/Test Equity Curve", train_test_curves)
+    save_line_chart(run_dir / "equity_curve.png", f"{symbol} PPO Train/Test Equity Curve", train_test_curves)
+    save_drawdown_chart(run_dir / "drawdown_curve.png", train_test_curves)
     save_line_chart(
         run_dir / "baseline_comparison.png",
         f"{symbol} PPO vs Baselines",
-        {"PPO": ppo_curve, **{name: item["equity_curve"] for name, item in base.items()}},
+        {"Train PPO": train_curve, "Test PPO": ppo_curve, **{name: item["equity_curve"] for name, item in base.items()}},
     )
     save_line_chart(
         run_dir / "stress_test_comparison.png",
         f"{symbol} Stress Test",
-        {"normal_cost": ppo_curve, "cost_x2": stress_curve},
+        {"Train PPO": train_curve, "Test normal_cost": ppo_curve, "Test cost_x2": stress_curve},
     )
     best_dir, best_report = promote_best_model(run_dir, ppo_metrics)
     write_json(best_dir / "best_selection.json", best_report)

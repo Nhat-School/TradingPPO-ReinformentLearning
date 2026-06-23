@@ -1,0 +1,13 @@
+{
+  "best_candidate": "rsi_rule",
+  "ranked_candidates": [
+    "rsi_rule",
+    "buy_hold",
+    "random_policy",
+    "ma_crossover",
+    "ppo"
+  ],
+  "return_spread_pct": 28.341381898797266,
+  "estimated_overfit_risk": "high",
+  "note": "Heuristic PBO-style warning based on candidate ranking and OOS dispersion, not a formal CSCV test."
+}
