@@ -1,11 +1,11 @@
 {
   "initial_equity": 10000.0,
-  "final_equity": 1998.7510006048203,
-  "return_pct": -80.0124899939518,
-  "max_drawdown_pct": -82.41295780904917,
-  "sharpe_simple": -2.505647945793907,
-  "num_points": 24077,
-  "total_trades": 3124,
-  "winning_trades": 1052,
-  "win_rate_pct": 33.67477592829705
+  "final_equity": 9954.961345191326,
+  "return_pct": -0.4503865480867342,
+  "max_drawdown_pct": -0.4503865480867342,
+  "sharpe_simple": -1.8280264048409236,
+  "num_points": 24111,
+  "total_trades": 3,
+  "winning_trades": 0,
+  "win_rate_pct": 0.0
 }

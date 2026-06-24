@@ -1,34 +1,34 @@
 {
   "window_1": {
     "initial_equity": 10000.0,
-    "final_equity": 6803.094813879511,
-    "return_pct": -31.96905186120489,
-    "max_drawdown_pct": -49.74896351679637,
-    "sharpe_simple": -1.9213119767620555,
-    "num_points": 6020
+    "final_equity": 9963.913095593327,
+    "return_pct": -0.36086904406672504,
+    "max_drawdown_pct": -0.36086904406672504,
+    "sharpe_simple": -3.0715513858636676,
+    "num_points": 6028
   },
   "window_2": {
-    "initial_equity": 6733.703245165547,
-    "final_equity": 4146.767024072589,
-    "return_pct": -38.41773429724936,
-    "max_drawdown_pct": -50.567399203270156,
-    "sharpe_simple": -2.972058099278274,
-    "num_points": 6019
+    "initial_equity": 9963.913095593327,
+    "final_equity": 9963.913095593327,
+    "return_pct": 0.0,
+    "max_drawdown_pct": 0.0,
+    "sharpe_simple": 0.0,
+    "num_points": 6028
   },
   "window_3": {
-    "initial_equity": 4146.767024072589,
-    "final_equity": 3805.0294732209018,
-    "return_pct": -8.24105981522113,
-    "max_drawdown_pct": -31.090569196523543,
-    "sharpe_simple": -0.3295890899769067,
-    "num_points": 6019
+    "initial_equity": 9963.913095593327,
+    "final_equity": 9963.913095593327,
+    "return_pct": 0.0,
+    "max_drawdown_pct": 0.0,
+    "sharpe_simple": 0.0,
+    "num_points": 6028
   },
   "window_4": {
-    "initial_equity": 3824.429883908477,
-    "final_equity": 1998.7510006048203,
-    "return_pct": -47.737282123678426,
-    "max_drawdown_pct": -50.1583831919004,
-    "sharpe_simple": -5.0121567501415445,
-    "num_points": 6019
+    "initial_equity": 9963.913095593327,
+    "final_equity": 9954.961345191326,
+    "return_pct": -0.08984171495795001,
+    "max_drawdown_pct": -0.08984171495795001,
+    "sharpe_simple": -2.4115902709321855,
+    "num_points": 6027
   }
 }

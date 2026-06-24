@@ -1,8 +1,8 @@
 {
-  "candidate_run": "/Users/nhaterik/TradingBot/ReinforcementTrading_Part_1/artifacts/models/NEARUSDT/15m/nearusdt_15m_20260622_075600",
+  "candidate_run": "/Users/nhaterik/TradingBot/ReinforcementTrading_Part_1/artifacts/models/NEARUSDT/15m/nearusdt_15m_20260623_050859",
   "best_dir": "/Users/nhaterik/TradingBot/ReinforcementTrading_Part_1/artifacts/models/NEARUSDT/15m/best",
-  "candidate_score": -105.62702533780191,
-  "previous_best_score": null,
+  "candidate_score": -4.219035994790264,
+  "previous_best_score": -105.62702533780191,
   "promoted": true,
   "selection_rule": "score = positive_return_bonus + return_pct + 2*sharpe - 0.25*abs(max_drawdown_pct)",
   "message": "Candidate promoted to best model."
